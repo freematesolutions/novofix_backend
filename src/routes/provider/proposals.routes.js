@@ -42,11 +42,11 @@ router.post('/:proposalId/send', requireActiveSubscription, checkLeadLimit, vali
 router.post('/:proposalId/cancel', proposalController.cancelProposal);
 
 // Rutas de bookings/reservas del proveedor
-router.get('/bookings', bookingController.getBookings);
+router.get('/bookings', bookingController.getBookings.bind(bookingController));
 router.get('/bookings/:id', (req, res) => {
   bookingController.getBookings(req, res); // Filtrado por ID específico
 });
-router.put('/bookings/:id/status', bookingController.updateBookingStatus);
-router.post('/bookings/:id/evidence', bookingController.uploadServiceEvidence);
+router.put('/bookings/:id/status', bookingController.updateBookingStatus.bind(bookingController));
+router.post('/bookings/:id/evidence', bookingController.uploadServiceEvidence.bind(bookingController));
 
 export default router;

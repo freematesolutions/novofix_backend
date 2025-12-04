@@ -54,11 +54,11 @@ router.get('/:id', async (req, res) => {
 });
 
 // Rutas específicas de cliente
-router.post('/:id/confirm-completion', clientOnly, bookingController.confirmServiceCompletion);
+router.post('/:id/confirm-completion', clientOnly, bookingController.confirmServiceCompletion.bind(bookingController));
 
 // Rutas específicas de proveedor
-router.put('/:id/status', providerOnly, bookingController.updateBookingStatus);
-router.post('/:id/evidence', providerOnly, bookingController.uploadServiceEvidence);
+router.put('/:id/status', providerOnly, bookingController.updateBookingStatus.bind(bookingController));
+router.post('/:id/evidence', providerOnly, bookingController.uploadServiceEvidence.bind(bookingController));
 
 // Rutas de reviews (después de completar el servicio)
 router.post('/:bookingId/reviews', clientOnly, reviewController.createReview);

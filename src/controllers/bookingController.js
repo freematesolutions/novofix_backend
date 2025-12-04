@@ -102,13 +102,22 @@ class BookingController {
    */
   async getBookings(req, res) {
     try {
-      const { status, page = 1, limit = 10 } = req.query;
+      const { status, page = 1, limit = 10, viewRole } = req.query;
 
       let query = {};
       const userRoles = Array.isArray(req.user?.roles) ? req.user.roles : [req.user?.role];
       
-      // Filtrar según rol
-      if (userRoles.includes('client')) {
+      // Si se especifica viewRole (para usuarios multirol), usarlo
+      // Si no, usar lógica por defecto
+      const activeRole = viewRole || (userRoles.includes('provider') ? 'provider' : 'client');
+      
+      // Filtrar según rol activo
+      if (activeRole === 'client' && userRoles.includes('client')) {
+        query.client = req.user._id;
+      } else if (activeRole === 'provider' && userRoles.includes('provider')) {
+        query.provider = req.user._id;
+      } else if (userRoles.includes('client')) {
+        // Fallback: si el viewRole solicitado no coincide con los roles del usuario
         query.client = req.user._id;
       } else if (userRoles.includes('provider')) {
         query.provider = req.user._id;

@@ -175,7 +175,10 @@ const providerSchema = new mongoose.Schema({
 
 // Índices para búsqueda eficiente
 providerSchema.index({ 'providerProfile.services.category': 1 });
-providerSchema.index({ 'providerProfile.serviceArea.location': '2dsphere' });
+providerSchema.index(
+  { 'providerProfile.serviceArea.location': '2dsphere' },
+  { partialFilterExpression: { role: 'Provider' } }
+);
 providerSchema.index({ 'subscription.plan': 1, 'score.total': -1 });
 providerSchema.index({ 'referral.code': 1 }, { unique: false });
 

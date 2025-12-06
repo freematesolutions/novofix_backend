@@ -100,7 +100,7 @@ class RequestController {
       await serviceRequest.save();
 
       // Publicación y notificación: si no hay elegibles por geo, mantener publicada si hay proveedores de la categoría
-      if (initialStatus === 'published' && visibility === 'auto') {
+      if (initialStatus === 'published' && serviceRequest.visibility === 'auto') {
         try {
           const eligible = await matchingService.findEligibleProviders(serviceRequest._id);
           if (!eligible || (eligible.totalCount || 0) === 0) {
@@ -154,7 +154,7 @@ class RequestController {
 
       // Buscar proveedores elegibles y notificar según visibilidad
       let notificationResult;
-      if (serviceRequest.status === 'published' && visibility === 'auto') {
+      if (serviceRequest.status === 'published' && serviceRequest.visibility === 'auto') {
         // Si se especificaron proveedores específicos, notificar solo a ellos
         if (targetProviders && Array.isArray(targetProviders) && targetProviders.length > 0) {
           notificationResult = await matchingService.notifyProviders(
@@ -399,7 +399,9 @@ class RequestController {
         sort: { createdAt: -1 },
         populate: [
           { path: 'client', select: 'profile contact' },
-          { path: 'acceptedProposal', populate: { path: 'provider', select: 'providerProfile' } }
+          { path: 'acceptedProposal', populate: { path: 'provider', select: 'providerProfile' } },
+          { path: 'selectedProviders', select: 'providerProfile' },
+          { path: 'eligibleProviders.provider', select: 'providerProfile' }
         ],
         select: '+metadata.proposalCount' // Include proposal counter
       };

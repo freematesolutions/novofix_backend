@@ -12,14 +12,29 @@ class ScoringService {
     try {
       const providerId = provider._id || provider;
 
-      // Si se pasa solo el ID, poblar datos necesarios
-      if (typeof providerId === 'string' || providerId.toString() === providerId) {
+      // Si se pasa solo el ID (string u ObjectId), poblar datos necesarios
+      const isIdOnly = typeof provider === 'string' || 
+                       (provider.constructor && provider.constructor.name === 'ObjectId') ||
+                       !provider.providerProfile;
+      
+      if (isIdOnly) {
         provider = await Provider.findById(providerId)
           .populate('providerProfile.rating')
           .lean();
+        
+        if (!provider) {
+          console.warn('ScoringService - Provider not found:', providerId);
+          return { total: 0, breakdown: {}, details: {} };
+        }
       }
 
-      const { rating, stats } = provider.providerProfile;
+      // Asegurarse de que providerProfile existe
+      if (!provider.providerProfile) {
+        console.warn('ScoringService - Provider has no providerProfile:', providerId);
+        return { total: 0, breakdown: {}, details: {} };
+      }
+
+      const { rating = {}, stats = {} } = provider.providerProfile;
       const subscription = provider.subscription;
 
       // 1. Rating Promedio × Factor Volumen

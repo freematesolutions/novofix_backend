@@ -514,7 +514,11 @@ class ProposalController {
         });
       }
 
-      const proposals = await Proposal.find({ serviceRequest: requestId })
+      // Solo mostrar propuestas enviadas o vistas (no borradores ni canceladas)
+      const proposals = await Proposal.find({ 
+        serviceRequest: requestId,
+        status: { $in: ['sent', 'viewed', 'accepted', 'rejected'] }
+      })
         .populate('provider', 'providerProfile subscription score')
         .sort({ 'pricing.amount': 1, createdAt: 1 });
 

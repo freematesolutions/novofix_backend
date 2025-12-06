@@ -61,10 +61,10 @@ router.put('/:id/status', providerOnly, bookingController.updateBookingStatus.bi
 router.post('/:id/evidence', providerOnly, bookingController.uploadServiceEvidence.bind(bookingController));
 
 // Rutas de reviews (después de completar el servicio)
-router.post('/:bookingId/reviews', clientOnly, reviewController.createReview);
+router.post('/:bookingId/reviews', clientOnly, reviewController.createReview.bind(reviewController));
 router.get('/:bookingId/reviews', (req, res) => {
   // Obtener review específica de un booking
-  reviewController.getProviderReviews(req, res);
+  reviewController.getProviderReviews.bind(reviewController)(req, res);
 });
 
 export default router;

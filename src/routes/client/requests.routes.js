@@ -46,10 +46,10 @@ router.post('/proposals/:proposalId/accept', requireAuth, clientOnly, proposalCo
 router.post('/proposals/:proposalId/reject', requireAuth, clientOnly, proposalController.rejectProposal);
 
 // Rutas de bookings/reservas
-router.get('/bookings', requireAuth, clientOnly, bookingController.getBookings);
+router.get('/bookings', requireAuth, clientOnly, bookingController.getBookings.bind(bookingController));
 router.get('/bookings/:id', requireAuth, clientOnly, (req, res) => {
   bookingController.getBookings(req, res); // Implementación específica para un booking
 });
-router.post('/bookings/:id/confirm-completion', requireAuth, clientOnly, bookingController.confirmServiceCompletion);
+router.post('/bookings/:id/confirm-completion', requireAuth, clientOnly, bookingController.confirmServiceCompletion.bind(bookingController));
 
 export default router;

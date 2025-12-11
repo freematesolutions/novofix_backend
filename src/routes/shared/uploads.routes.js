@@ -80,4 +80,34 @@ router.post('/portfolio',
   uploadController.uploadPortfolio
 );
 
+// Upload para chat (imágenes y documentos)
+const chatUpload = multer({ 
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB máximo por archivo para chat
+    files: 5 // Máximo 5 archivos
+  },
+  fileFilter: function (req, file, cb) {
+    const allowedMimes = [
+      'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
+      'application/pdf',
+      'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain'
+    ];
+    
+    if (allowedMimes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`Invalid file type for chat: ${file.mimetype}.`));
+    }
+  }
+});
+const handleChatUpload = chatUpload.single('file');
+router.post('/chat',
+  authenticateJWT,
+  requireAuth,
+  handleChatUpload,
+  uploadController.uploadChatFile
+);
+
 export default router;

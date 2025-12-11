@@ -499,6 +499,81 @@ class UploadController {
       });
     }
   }
+
+  /**
+   * Subir archivo para chat (imágenes y documentos)
+   * Límite: 5MB, tipos permitidos: imágenes, PDF, documentos de texto
+   */
+  async uploadChatFile(req, res) {
+    try {
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          message: 'No file uploaded'
+        });
+      }
+
+      const file = req.file;
+      const fileSizeMB = (file.size / 1024 / 1024).toFixed(2);
+      const isImage = file.mimetype.startsWith('image/');
+      
+      console.log(`📤 Uploading chat file: ${file.originalname} (${isImage ? 'image' : 'document'}, ${fileSizeMB}MB)`);
+
+      // Subir a Cloudinary con carpeta específica para chat
+      const result = await new Promise((resolve, reject) => {
+        const uploadOptions = {
+          folder: 'marketplace-services/chat',
+          resource_type: isImage ? 'image' : 'raw',
+          use_filename: true,
+          unique_filename: true,
+          timeout: 60000
+        };
+
+        // Optimizaciones para imágenes de chat
+        if (isImage) {
+          uploadOptions.quality = 'auto:good';
+          uploadOptions.fetch_format = 'auto';
+          uploadOptions.transformation = [
+            { width: 1200, height: 1200, crop: 'limit' } // Limitar tamaño máximo
+          ];
+        }
+
+        const uploadStream = cloudinary.uploader.upload_stream(
+          uploadOptions,
+          (error, result) => {
+            if (error) {
+              reject(error);
+            } else {
+              resolve(result);
+            }
+          }
+        );
+        
+        uploadStream.end(file.buffer);
+      });
+
+      console.log(`✅ Chat file uploaded: ${result.secure_url}`);
+
+      res.json({
+        success: true,
+        message: 'File uploaded successfully',
+        data: {
+          url: result.secure_url,
+          cloudinaryId: result.public_id,
+          type: isImage ? 'image' : 'document',
+          name: file.originalname,
+          size: file.size,
+          mimeType: file.mimetype
+        }
+      });
+    } catch (error) {
+      console.error('❌ UploadController - uploadChatFile error:', error);
+      res.status(500).json({
+        success: false,
+        message: `Failed to upload chat file: ${error.message}`
+      });
+    }
+  }
 }
 
 export default new UploadController();

@@ -109,20 +109,85 @@ class ReviewController {
   }
 
   /**
-   * Obtener reviews de un proveedor
+   * Obtener reviews de un proveedor con filtros avanzados
    */
   async getProviderReviews(req, res) {
     try {
       const { providerId } = req.params;
-      const { page = 1, limit = 10, rating } = req.query;
+      const { 
+        page = 1, 
+        limit = 10, 
+        rating, 
+        sort = 'recent',
+        dateFilter,
+        verified,
+        withPhotos
+      } = req.query;
 
+      // Build query
       let query = { provider: providerId, status: 'active' };
-      if (rating) query['rating.overall'] = parseInt(rating);
+      
+      // Rating filter
+      if (rating) {
+        query['rating.overall'] = parseInt(rating);
+      }
+      
+      // Date filter
+      if (dateFilter) {
+        const now = new Date();
+        let startDate;
+        
+        switch (dateFilter) {
+          case 'week':
+            startDate = new Date(now.setDate(now.getDate() - 7));
+            break;
+          case 'month':
+            startDate = new Date(now.setMonth(now.getMonth() - 1));
+            break;
+          case 'quarter':
+            startDate = new Date(now.setMonth(now.getMonth() - 3));
+            break;
+          case 'year':
+            startDate = new Date(now.setFullYear(now.getFullYear() - 1));
+            break;
+        }
+        
+        if (startDate) {
+          query.createdAt = { $gte: startDate };
+        }
+      }
+      
+      // Verified purchase filter
+      if (verified === 'true') {
+        query['metadata.verifiedPurchase'] = true;
+      }
+      
+      // With photos filter
+      if (withPhotos === 'true') {
+        query['review.photos'] = { $exists: true, $ne: [] };
+      }
+
+      // Build sort
+      let sortOptions = { createdAt: -1 }; // default: recent
+      
+      switch (sort) {
+        case 'oldest':
+          sortOptions = { createdAt: 1 };
+          break;
+        case 'highest':
+          sortOptions = { 'rating.overall': -1, createdAt: -1 };
+          break;
+        case 'lowest':
+          sortOptions = { 'rating.overall': 1, createdAt: -1 };
+          break;
+        case 'helpful':
+          sortOptions = { 'helpfulness.helpful': -1, createdAt: -1 };
+          break;
+      }
 
       const reviews = await Review.find(query)
         .populate('client', 'profile')
-        .populate('providerResponse')
-        .sort({ createdAt: -1 })
+        .sort(sortOptions)
         .skip((page - 1) * limit)
         .limit(parseInt(limit));
 
@@ -474,11 +539,81 @@ class ReviewController {
 
     const average = reviews.reduce((sum, review) => sum + review.rating.overall, 0) / reviews.length;
 
+    // Calculate category averages
+    const categories = ['professionalism', 'quality', 'punctuality', 'communication', 'value'];
+    const categoryAverages = {};
+    
+    categories.forEach(cat => {
+      const sum = reviews.reduce((s, r) => s + (r.rating?.categories?.[cat] || 0), 0);
+      categoryAverages[cat] = reviews.length > 0 ? Math.round((sum / reviews.length) * 10) / 10 : 0;
+    });
+
     return {
-      average: Math.round(average * 10) / 10,
-      count: reviews.length,
-      distribution
+      averageRating: Math.round(average * 10) / 10,
+      totalReviews: reviews.length,
+      breakdown: distribution,
+      categories: categoryAverages
     };
+  }
+
+  /**
+   * Votar review como útil o no útil
+   */
+  async voteHelpful(req, res) {
+    try {
+      const { reviewId } = req.params;
+      const { action } = req.body; // 'helpful' | 'notHelpful' | 'remove'
+
+      if (!['helpful', 'notHelpful', 'remove'].includes(action)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid action. Use helpful, notHelpful, or remove'
+        });
+      }
+
+      const review = await Review.findById(reviewId);
+      if (!review) {
+        return res.status(404).json({
+          success: false,
+          message: 'Review not found'
+        });
+      }
+
+      // Initialize helpfulness if not exists
+      if (!review.helpfulness) {
+        review.helpfulness = { helpful: 0, notHelpful: 0, reported: 0 };
+      }
+
+      // For simplicity, we just increment/decrement counters
+      // In a production app, you'd track which users voted to prevent double voting
+      switch (action) {
+        case 'helpful':
+          review.helpfulness.helpful = (review.helpfulness.helpful || 0) + 1;
+          break;
+        case 'notHelpful':
+          review.helpfulness.notHelpful = (review.helpfulness.notHelpful || 0) + 1;
+          break;
+        case 'remove':
+          // Remove vote (would need user tracking in production)
+          break;
+      }
+
+      await review.save();
+
+      res.json({
+        success: true,
+        message: 'Vote recorded',
+        data: {
+          helpfulness: review.helpfulness
+        }
+      });
+    } catch (error) {
+      console.error('ReviewController - voteHelpful error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to record vote'
+      });
+    }
   }
 }
 

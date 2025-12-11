@@ -283,7 +283,7 @@ class AdminController {
   }
 
   /**
-   * Reportes y analytics
+   * Reportes y analytics con gráficos
    */
   async getReports(req, res) {
     try {
@@ -295,7 +295,10 @@ class AdminController {
         newUsers,
         newServiceRequests,
         completedBookings,
-        revenue
+        revenue,
+        bookingsByStatus,
+        dailyTrends,
+        weeklyComparison
       ] = await Promise.all([
         User.countDocuments({ createdAt: { $gte: dateRange.start } }),
         ServiceRequest.countDocuments({ createdAt: { $gte: dateRange.start } }),
@@ -303,7 +306,57 @@ class AdminController {
           status: 'completed', 
           createdAt: { $gte: dateRange.start } 
         }),
-        this.calculatePeriodRevenue(dateRange)
+        this.calculatePeriodRevenue(dateRange),
+        // Bookings by status for donut chart
+        Booking.aggregate([
+          { $match: { createdAt: { $gte: dateRange.start } } },
+          { $group: { _id: '$status', count: { $sum: 1 } } },
+          { $sort: { count: -1 } }
+        ]),
+        // Daily trends for line chart
+        Booking.aggregate([
+          { $match: { createdAt: { $gte: dateRange.start } } },
+          { 
+            $group: { 
+              _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+              count: { $sum: 1 }
+            }
+          },
+          { $sort: { _id: 1 } },
+          { $limit: 30 },
+          { $project: { date: '$_id', count: 1, _id: 0 } }
+        ]),
+        // Weekly comparison for bar chart
+        Booking.aggregate([
+          { $match: { createdAt: { $gte: dateRange.start } } },
+          {
+            $group: {
+              _id: { $dayOfWeek: '$createdAt' },
+              count: { $sum: 1 }
+            }
+          },
+          { $sort: { _id: 1 } },
+          {
+            $project: {
+              day: {
+                $switch: {
+                  branches: [
+                    { case: { $eq: ['$_id', 1] }, then: 'Dom' },
+                    { case: { $eq: ['$_id', 2] }, then: 'Lun' },
+                    { case: { $eq: ['$_id', 3] }, then: 'Mar' },
+                    { case: { $eq: ['$_id', 4] }, then: 'Mié' },
+                    { case: { $eq: ['$_id', 5] }, then: 'Jue' },
+                    { case: { $eq: ['$_id', 6] }, then: 'Vie' },
+                    { case: { $eq: ['$_id', 7] }, then: 'Sáb' }
+                  ],
+                  default: 'Otro'
+                }
+              },
+              count: 1,
+              _id: 0
+            }
+          }
+        ])
       ]);
 
       // Métricas de proveedores
@@ -319,7 +372,12 @@ class AdminController {
             newServiceRequests,
             completedBookings,
             revenue,
-            providerMetrics
+            providerMetrics,
+            bookingsByStatus,
+            weeklyComparison
+          },
+          trends: {
+            daily: dailyTrends
           }
         }
       });

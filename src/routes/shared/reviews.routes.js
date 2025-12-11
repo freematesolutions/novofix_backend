@@ -26,6 +26,9 @@ router.put('/:reviewId/report', clientOrProvider, reviewController.reportReview.
 // Obtener review por booking (cliente o proveedor involucrado)
 router.get('/booking/:bookingId', clientOrProvider, reviewController.getReviewByBooking.bind(reviewController));
 
+// Helpful/Not Helpful - cualquier usuario autenticado puede votar
+router.post('/:reviewId/helpful', clientOrProvider, reviewController.voteHelpful.bind(reviewController));
+
 // Proveedores - responder a reviews
 router.put('/:reviewId/response', providerOnly, reviewController.respondToReview.bind(reviewController));
 router.patch('/:reviewId/response', providerOnly, reviewController.updateReviewResponse.bind(reviewController));

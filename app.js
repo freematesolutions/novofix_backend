@@ -179,6 +179,43 @@ app.use((req, res, next) => {
 // 2. ROUTES
 app.use('/api', routes);
 
+// Health check endpoint para Render y monitoreo
+app.get('/health', async (req, res) => {
+  try {
+    // Importar dinámicamente para evitar problemas de inicialización circular
+    const { getEmailService } = await import('./src/services/external/email/emailService.js');
+    const emailService = getEmailService();
+    const emailStatus = await emailService.getServiceStatus();
+
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV || 'development',
+      services: {
+        api: 'running',
+        email: {
+          mode: emailStatus.mode,
+          smtpConfigured: emailStatus.smtp?.configured || false,
+          smtpVerified: emailStatus.smtpVerified || false
+        }
+      },
+      envCheck: {
+        FRONTEND_URL: !!process.env.FRONTEND_URL,
+        GMAIL_USER: !!process.env.GMAIL_USER,
+        GMAIL_APP_PASSWORD: !!process.env.GMAIL_APP_PASSWORD,
+        EMAIL_MODE: process.env.EMAIL_MODE || 'auto'
+      }
+    });
+  } catch (error) {
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV || 'development',
+      services: { api: 'running' },
+      emailServiceError: error.message
+    });
+  }
+});
 
 // Mantener la raíz '/' para Render
 app.get('/', (req, res) => {

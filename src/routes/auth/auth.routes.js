@@ -19,6 +19,7 @@ import {
   requireActiveSubscription,
   checkLeadLimit
 } from '../../middlewares/auth/rbacMiddleware.js';
+import { getEmailService } from '../../services/external/email/emailService.js';
 
 const router = express.Router();
 
@@ -86,5 +87,46 @@ router.post('/merge-guest', authenticateJWT, handleGuestMerge, (req, res) => {
 
 // Verify email endpoint
 router.post('/verify-email', authController.verifyEmail);
+
+// Endpoint de diagnóstico para verificar estado del servicio de email (solo admin o en desarrollo)
+router.get('/email-status', async (req, res) => {
+  try {
+    const emailService = getEmailService();
+    const status = await emailService.getServiceStatus();
+    
+    // Ocultar información sensible en producción
+    const safeStatus = {
+      mode: status.mode,
+      isDevelopment: status.isDevelopment,
+      smtp: {
+        configured: status.smtp?.configured || false,
+        verified: status.smtpVerified || false,
+        error: status.smtpError || null,
+        user: status.smtp?.user ? `${status.smtp.user.slice(0, 5)}...` : 'no configurado'
+      },
+      resend: {
+        configured: status.resend?.configured || false
+      },
+      defaultFrom: status.defaultFrom ? `${status.defaultFrom.slice(0, 10)}...` : 'no configurado',
+      envVars: {
+        EMAIL_MODE: process.env.EMAIL_MODE || 'no definido',
+        GMAIL_USER_EXISTS: !!process.env.GMAIL_USER,
+        GMAIL_APP_PASSWORD_EXISTS: !!process.env.GMAIL_APP_PASSWORD,
+        FRONTEND_URL: process.env.FRONTEND_URL || 'no definido'
+      }
+    };
+
+    res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      emailService: safeStatus
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
 
 export default router;

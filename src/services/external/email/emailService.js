@@ -83,6 +83,16 @@ class EmailService {
    * Envía email usando el modo configurado
    */
   async sendEmail({ to, subject, template, data }) {
+    // Log detallado para diagnóstico en producción
+    console.log('[📧 EMAIL] sendEmail llamado:', { 
+      to, 
+      subject, 
+      template, 
+      mode: this.emailMode,
+      smtpConfigured: !!this.smtpTransporter,
+      resendConfigured: !!this.resend
+    });
+
     try {
       if (!to || !subject || !template) {
         throw new Error('Missing required email parameters: to, subject, template');
@@ -92,28 +102,44 @@ class EmailService {
       const safeData = this.sanitizeTemplateData(template, data);
       const html = this.getTemplateHtml(template, safeData);
 
+      console.log(`[📧 EMAIL] Enviando con modo: ${this.emailMode}`);
+
       // Seleccionar proveedor según el modo
+      let result;
       switch (this.emailMode) {
         case 'console':
-          return this.sendViaConsole({ to, subject, template, data: safeData });
+          result = await this.sendViaConsole({ to, subject, template, data: safeData });
+          break;
         
         case 'smtp':
-          return this.sendViaSmtp({ to, subject, html });
+          result = await this.sendViaSmtp({ to, subject, html });
+          break;
         
         case 'resend':
-          return this.sendViaResend({ to, subject, html });
+          result = await this.sendViaResend({ to, subject, html });
+          break;
         
         case 'hybrid':
-          return this.sendViaHybrid({ to, subject, template, data: safeData, html });
+          result = await this.sendViaHybrid({ to, subject, template, data: safeData, html });
+          break;
         
         default:
           // Auto-detectar mejor opción
-          if (this.smtpTransporter) return this.sendViaSmtp({ to, subject, html });
-          if (this.resend) return this.sendViaResend({ to, subject, html });
-          return this.sendViaConsole({ to, subject, template, data: safeData });
+          console.log('[📧 EMAIL] Modo auto-detectar. SMTP:', !!this.smtpTransporter, 'Resend:', !!this.resend);
+          if (this.smtpTransporter) {
+            result = await this.sendViaSmtp({ to, subject, html });
+          } else if (this.resend) {
+            result = await this.sendViaResend({ to, subject, html });
+          } else {
+            result = await this.sendViaConsole({ to, subject, template, data: safeData });
+          }
       }
+      
+      console.log('[📧 EMAIL] Resultado:', result);
+      return result;
     } catch (error) {
       console.error('[📧 EMAIL ERROR]', error.message);
+      console.error('[📧 EMAIL ERROR STACK]', error.stack);
       
       // En desarrollo o modo híbrido, no fallar, solo advertir
       if (this.isDevelopment || this.emailMode === 'hybrid') {

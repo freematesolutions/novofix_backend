@@ -516,9 +516,18 @@ class EmailService {
   /**
    * Verifica el estado del servicio de email
    */
-  async healthCheck() {
+  async getServiceStatus() {
     const status = {
       mode: this.emailMode,
+      isDevelopment: this.isDevelopment,
+      smtp: {
+        configured: !!this.smtpTransporter,
+        user: process.env.GMAIL_USER || process.env.SMTP_USER || null
+      },
+      resend: {
+        configured: !!this.resend
+      },
+      defaultFrom: this.defaultFrom,
       providers: {
         smtp: !!this.smtpTransporter,
         resend: !!this.resend,
@@ -539,6 +548,11 @@ class EmailService {
     }
 
     return status;
+  }
+
+  // Alias para compatibilidad
+  async healthCheck() {
+    return this.getServiceStatus();
   }
 
   /**

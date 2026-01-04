@@ -299,6 +299,9 @@ class GuestController {
 
       console.log(`📊 Found ${providers.length} providers in database`);
 
+      // Total de proveedores únicos
+      const totalUniqueProviders = providers.length;
+
       // Contar proveedores por categoría (incluir todos, incluso sin suscripción activa por ahora)
       const categoryCounts = {};
       providers.forEach(p => {
@@ -323,11 +326,14 @@ class GuestController {
         }))
         .sort((a, b) => b.providerCount - a.providerCount); // Ordenar por cantidad de proveedores
 
-      console.log(`✅ Returning ${services.length} active service categories`);
+      console.log(`✅ Returning ${services.length} active service categories with ${totalUniqueProviders} unique providers`);
 
       res.json({
         success: true,
-        data: { services }
+        data: { 
+          services,
+          totalUniqueProviders 
+        }
       });
     } catch (error) {
       console.error('GuestController - getActiveServices error:', error);

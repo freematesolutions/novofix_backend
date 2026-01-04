@@ -13,7 +13,8 @@ export const messageSchema = Joi.object({
       }))
     })
   ).required(),
-  type: Joi.string().valid('text', 'image', 'file', 'system').default('text')
+  type: Joi.string().valid('text', 'image', 'file', 'system').default('text'),
+  localId: Joi.string().optional() // Client-side tracking ID for optimistic updates
 });
 
 export const typingSchema = Joi.object({

@@ -2,10 +2,100 @@
 import Chat from '../models/Communication/Chat.js';
 import Message from '../models/Communication/Message.js';
 import Booking from '../models/Service/Booking.js';
+import Proposal from '../models/Service/Proposal.js';
 import { getIO } from '../config/socket.js';
 import emitter from '../websocket/services/emitterService.js';
 
 class ChatController {
+  /**
+   * Crear o obtener chat para una propuesta (negociación)
+   * Permite al cliente y proveedor comunicarse antes de aceptar la propuesta
+   */
+  async createOrGetProposalChat(req, res) {
+    try {
+      const { proposalId } = req.params;
+
+      // Obtener la propuesta con su solicitud
+      const proposal = await Proposal.findById(proposalId).populate('serviceRequest');
+      if (!proposal) {
+        return res.status(404).json({
+          success: false,
+          message: 'Proposal not found'
+        });
+      }
+
+      // Verificar que el usuario sea participante (cliente o proveedor)
+      const isClient = proposal.serviceRequest.client.toString() === req.user._id.toString();
+      const isProvider = proposal.provider.toString() === req.user._id.toString();
+      
+      if (!isClient && !isProvider) {
+        return res.status(403).json({
+          success: false,
+          message: 'Not authorized to access this chat'
+        });
+      }
+
+      // Buscar chat existente para esta propuesta
+      let chat = await Chat.findOne({
+        proposal: proposalId
+      }).populate('participants.client', 'profile')
+        .populate('participants.provider', 'providerProfile')
+        .populate('lastMessage');
+
+      if (!chat) {
+        // Crear nuevo chat de negociación
+        chat = new Chat({
+          participants: {
+            client: proposal.serviceRequest.client,
+            provider: proposal.provider
+          },
+          proposal: proposalId,
+          serviceRequest: proposal.serviceRequest._id,
+          chatType: 'proposal_negotiation',
+          status: 'active',
+          metadata: {
+            createdAt: new Date(),
+            lastActivity: new Date()
+          }
+        });
+
+        await chat.save();
+
+        // Crear mensaje de sistema inicial
+        await this.createSystemMessage(
+          chat._id,
+          `💬 Conversación iniciada sobre la propuesta de ${proposal.pricing?.amount ? Intl.NumberFormat('es-AR', { style: 'currency', currency: proposal.pricing.currency || 'USD' }).format(proposal.pricing.amount) : 'la propuesta'}. Pueden negociar términos y resolver dudas aquí.`
+        );
+
+        // Re-populate después de guardar
+        chat = await Chat.findById(chat._id)
+          .populate('participants.client', 'profile')
+          .populate('participants.provider', 'providerProfile')
+          .populate('lastMessage');
+      }
+
+      res.json({
+        success: true,
+        data: { 
+          chat,
+          proposal: {
+            _id: proposal._id,
+            amount: proposal.pricing?.amount,
+            currency: proposal.pricing?.currency,
+            message: proposal.message,
+            status: proposal.status
+          }
+        }
+      });
+    } catch (error) {
+      console.error('ChatController - createOrGetProposalChat error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to create or get chat'
+      });
+    }
+  }
+
   /**
    * Crear chat para una reserva
    */
@@ -27,6 +117,7 @@ class ChatController {
           provider: booking.provider
         },
         booking: booking._id,
+        chatType: 'booking',
         status: 'active'
       });
 
@@ -90,6 +181,7 @@ class ChatController {
       });
 
       await message.save();
+      console.log(`💾 Message saved: id=${message._id}, chat=${chatId}, sender=${req.user._id}, text="${text?.substring(0, 50)}..."`);
 
       // Actualizar último mensaje del chat
       chat.lastMessage = message._id;
@@ -135,6 +227,8 @@ class ChatController {
       const { chatId } = req.params;
       const { page = 1, limit = 50 } = req.query;
 
+      console.log(`📖 getChatMessages: chatId=${chatId}, userId=${req.user._id}, page=${page}, limit=${limit}`);
+
       const chat = await Chat.findOne({
         _id: chatId,
         $or: [
@@ -144,11 +238,14 @@ class ChatController {
       });
 
       if (!chat) {
+        console.log(`❌ Chat not found or access denied: chatId=${chatId}, userId=${req.user._id}`);
         return res.status(404).json({
           success: false,
           message: 'Chat not found or access denied'
         });
       }
+
+      console.log(`✅ Chat found: participants.client=${chat.participants.client}, participants.provider=${chat.participants.provider}`);
 
       const messages = await Message.find({ chat: chatId })
         .sort({ 'metadata.timestamp': -1 })
@@ -156,11 +253,18 @@ class ChatController {
         .limit(parseInt(limit))
         .populate('sender', 'profile providerProfile');
 
+      console.log(`📬 Found ${messages.length} messages for chat ${chatId}`);
+
+      // Determinar rol del usuario para marcar mensajes
+      const userRoles = Array.isArray(req.user?.roles) ? req.user.roles : [req.user?.role];
+      const isProvider = userRoles.includes('provider');
+      const isClient = userRoles.includes('client');
+      const userRole = (isProvider && !isClient) ? 'Provider' : 'Client';
+
       // Marcar mensajes como leídos
-      await this.markMessagesAsRead(chatId, req.user._id);
+      await this.markMessagesAsRead(chatId, req.user._id, userRole);
 
       // Resetear contador de no leídos
-      const userRoles = Array.isArray(req.user?.roles) ? req.user.roles : [req.user?.role];
       if (userRoles.includes('client')) {
         chat.unreadCount.client = 0;
       }
@@ -201,9 +305,21 @@ class ChatController {
       let query = {};
       const userRoles = Array.isArray(req.user?.roles) ? req.user.roles : [req.user?.role];
 
-      if (userRoles.includes('client')) {
+      // Para usuarios con ambos roles, buscar donde sea cliente O proveedor
+      const isClient = userRoles.includes('client');
+      const isProvider = userRoles.includes('provider');
+      
+      if (isClient && isProvider) {
+        // Usuario dual - buscar en ambos campos
+        query = {
+          $or: [
+            { 'participants.client': req.user._id },
+            { 'participants.provider': req.user._id }
+          ]
+        };
+      } else if (isClient) {
         query = { 'participants.client': req.user._id };
-      } else if (userRoles.includes('provider')) {
+      } else if (isProvider) {
         query = { 'participants.provider': req.user._id };
       }
 
@@ -211,6 +327,8 @@ class ChatController {
         .populate('participants.client', 'profile')
         .populate('participants.provider', 'providerProfile')
         .populate('booking', 'basicInfo status')
+        .populate('proposal', 'pricing message status')
+        .populate('serviceRequest', 'basicInfo status')
         .populate('lastMessage')
         .sort({ 'metadata.lastActivity': -1 });
 
@@ -251,7 +369,7 @@ class ChatController {
   /**
    * Marcar mensajes como leídos
    */
-  async markMessagesAsRead(chatId, userId) {
+  async markMessagesAsRead(chatId, userId, userRole = 'Client') {
     try {
       await Message.updateMany(
         {
@@ -263,7 +381,7 @@ class ChatController {
           $push: {
             readBy: {
               user: userId,
-              userModel: (Array.isArray(req.user?.roles) ? req.user.roles : [req.user?.role]).includes('provider') && !(Array.isArray(req.user?.roles) ? req.user.roles : [req.user?.role]).includes('client') ? 'Provider' : 'Client',
+              userModel: userRole,
               readAt: new Date()
             }
           },
@@ -282,16 +400,34 @@ class ChatController {
     try {
       const io = getIO();
 
-      // Emitir a ambos participantes
-      io.to(`user_${chat.participants.client}`).emit('new_message', {
+      const clientId = chat.participants.client?.toString() || chat.participants.client;
+      const providerId = chat.participants.provider?.toString() || chat.participants.provider;
+      const chatId = chat._id?.toString() || chat._id;
+
+      console.log(`📤 Emitting new_message to users: client=${clientId}, provider=${providerId}, chatId=${chatId}`);
+
+      // Emitir a la sala del chat (para usuarios que tienen el chat abierto)
+      io.to(`chat_${chatId}`).emit('new_message', {
         chatId: chat._id,
         message
       });
 
-      io.to(`user_${chat.participants.provider}`).emit('new_message', {
-        chatId: chat._id,
-        message
-      });
+      // También emitir a las salas de usuario (para notificaciones globales)
+      if (clientId) {
+        io.to(`user_${clientId}`).emit('new_message', {
+          chatId: chat._id,
+          message
+        });
+      }
+
+      if (providerId) {
+        io.to(`user_${providerId}`).emit('new_message', {
+          chatId: chat._id,
+          message
+        });
+      }
+
+      console.log(`✅ Message emitted successfully to chat_${chatId}, user_${clientId}, user_${providerId}`);
     } catch (error) {
       console.error('ChatController - emitNewMessage error:', error);
     }

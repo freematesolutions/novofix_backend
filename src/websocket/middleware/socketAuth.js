@@ -32,6 +32,9 @@ export const socketAuth = async (socket, next) => {
       name: user.profile?.firstName || user.providerProfile?.businessName
     };
 
+    // Registrar el estado del usuario durante la autenticación del socket
+    console.log('Estado del usuario en socketAuth:', user);
+
     next();
   } catch (error) {
     console.error('Socket authentication error:', error.message);

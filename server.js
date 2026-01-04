@@ -1,15 +1,35 @@
-import { config } from 'dotenv';
+// Asegurar que dotenv se cargue antes de cualquier otra importación
+import dotenv from 'dotenv';
+dotenv.config({ path: './.env' }); // Cambiar la ruta al archivo .env por defecto
 
-// Configurar variables de entorno PRIMERO
-const envFile = process.env.NODE_ENV === 'production' ? './.env.production' : './.env.development';
-config({ path: envFile });
-
-
+// Importaciones restantes
+import fs from 'fs';
 import app from './app.js';
 import http from 'http';
 import { configureSocket } from './src/config/socket.js';
 import connectDB from './src/config/database.js';
 import redisClient from './src/config/redis.js';
+
+// Log adicional para depuración
+console.log('NODE_ENV:', process.env.NODE_ENV);
+console.log('Intentando cargar archivo de entorno:', './.env');
+
+// Verificar si las variables de entorno están disponibles después de cargar dotenv
+console.log('RESEND_API_KEY:', process.env.RESEND_API_KEY || 'NO DEFINIDO');
+console.log('RESEND_FROM_EMAIL:', process.env.RESEND_FROM_EMAIL || 'NO DEFINIDO');
+
+
+// Mover el log después de cargar dotenv
+console.log('[RESEND] API KEY cargada:', process.env.RESEND_API_KEY ? process.env.RESEND_API_KEY.slice(0, 8) + '...' : 'NO DEFINIDA');
+
+
+// Cargar variables manualmente para depuración
+process.env.RESEND_API_KEY = 're_QvQMMz4a_2eVDhUZWTUQC1YhTtuN7qgzJ';
+process.env.RESEND_FROM_EMAIL = 'onboarding@resend.dev';
+
+// Log para verificar
+console.log('RESEND_API_KEY (manual):', process.env.RESEND_API_KEY);
+
 
 // Manejar excepciones no capturadas
 process.on('uncaughtException', (err) => {

@@ -1,4 +1,4 @@
-// controllers/authController.js
+// IMPORTS AL INICIO
 import User from '../models/User/User.js';
 import Client from '../models/User/Client.js';
 import Provider from '../models/User/Provider.js';
@@ -14,50 +14,8 @@ import crypto from 'crypto';
 
 class AuthController {
   /**
-   * Verificar disponibilidad de email
-   */
-  async checkEmailAvailability(req, res) {
-    try {
-      const { email } = req.query;
-
-      if (!email || typeof email !== 'string') {
-        return res.status(400).json({
-          success: false,
-          message: 'Email is required'
-        });
-      }
-
-      // Validar formato básico
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email)) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid email format',
-          available: false
-        });
-      }
-
-      // Verificar si existe en la base de datos
-      const existingUser = await User.findOne({ email }).select('_id');
-      const available = !existingUser;
-
-      return res.json({
-        success: true,
-        available,
-        message: available ? 'Email is available' : 'Email is already registered'
-      });
-    } catch (error) {
-      console.error('AuthController - checkEmailAvailability error:', error);
-      return res.status(500).json({
-        success: false,
-        message: 'Error checking email availability',
-        available: false
-      });
-    }
-  }
-
-  /**
-   * Registro de cliente con merge de sesión guest
+   * Registro de cliente con verificación pendiente
+   * NO envía token si el usuario no está verificado
    */
   async registerClient(req, res) {
     try {
@@ -72,7 +30,10 @@ class AuthController {
         });
       }
 
-      // Crear nuevo cliente - no necesitamos especificar role porque es manejado por el discriminator
+      // Generar token de verificación de email
+      const emailVerificationToken = crypto.randomBytes(32).toString('hex');
+
+      // Crear nuevo cliente en estado pendiente
       const client = new Client({
         email,
         password,
@@ -82,10 +43,25 @@ class AuthController {
           phone
         },
         guestSessionId: guestSessionId || req.session?.sessionId,
-        roles: ['client']
+        roles: ['client'],
+        isActive: false, // No activo hasta verificar email
+        emailVerified: false, // No verificado aún
+        emailVerificationToken
       });
 
       await client.save();
+
+      // Enviar email de verificación
+      try {
+        const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verificar-email?token=${emailVerificationToken}`;
+        await notificationService.sendClientNotification({
+          clientId: client._id,
+          type: 'VERIFY_EMAIL',
+          data: { firstName: client.profile?.firstName, verifyUrl }
+        });
+      } catch (e) {
+        console.warn('Verification email failed:', e?.message);
+      }
 
       // Manejar merge de datos guest si existe sesión
       if (req.session?.sessionId) {
@@ -93,19 +69,10 @@ class AuthController {
         await handleGuestMerge(req, res, () => {});
       }
 
-      // Generar tokens (access + refresh)
-      const token = generateToken(client._id);
-      const refresh = jwt.sign({ id: client._id }, process.env.JWT_REFRESH_SECRET, { expiresIn: '90d' });
+      // NO generar tokens para usuario no verificado
+      // Solo devolver información básica del usuario
 
-      // Setear cookie httpOnly con refresh token
-      res.cookie('refresh_token', refresh, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        maxAge: 90 * 24 * 60 * 60 * 1000
-      });
-
-      // Notificación de bienvenida para cliente (in-app + real-time)
+      // Notificación de bienvenida para cliente (solo in-app, no email)
       try {
         await notificationService.sendClientNotification({
           clientId: client._id,
@@ -116,19 +83,43 @@ class AuthController {
         console.warn('Client welcome notification failed:', e?.message);
       }
 
+      // En desarrollo con AUTO_VERIFY_EMAIL=true, incluir token para verificación inmediata
+      const isDev = process.env.NODE_ENV !== 'production';
+      const autoVerifyEnabled = process.env.AUTO_VERIFY_EMAIL === 'true';
+      const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verificar-email?token=${emailVerificationToken}`;
+
       res.status(201).json({
         success: true,
-        message: 'Client registered successfully',
+        message: 'Client registered successfully. Please verify your email.',
         data: {
           user: {
             id: client._id,
             email: client.email,
             role: client.role,
             roles: client.roles,
-            profile: client.profile
+            profile: client.profile,
+            isActive: client.isActive,
+            emailVerified: client.emailVerified
           },
-          token
+          // NO enviamos token aquí - solo indicador de verificación pendiente
+          pendingVerification: true,
+          // En desarrollo: proporcionar URL de verificación directamente
+          ...(isDev && {
+            _dev: {
+              verifyUrl,
+              hint: 'Usa esta URL para verificar el email en desarrollo',
+              autoVerify: autoVerifyEnabled
+            }
+          })
         }
+      });
+
+      // Registrar el estado inicial del usuario registrado
+      console.log('Usuario registrado pendiente de verificación:', {
+        email: client.email,
+        isActive: client.isActive,
+        emailVerified: client.emailVerified,
+        emailVerificationToken: client.emailVerificationToken
       });
     } catch (error) {
       console.error('AuthController - registerClient error:', error);
@@ -141,7 +132,8 @@ class AuthController {
   }
 
   /**
-   * Registro de proveedor
+   * Registro de proveedor con verificación pendiente
+   * NO envía token si el usuario no está verificado
    */
   async registerProvider(req, res) {
     try {
@@ -195,12 +187,14 @@ class AuthController {
       // Generar código de referido
       const referralCode = AuthController.generateReferralCode(businessName);
 
-      // Crear proveedor (no establecer 'role'; lo maneja el discriminator)
       // Ensure plans exist
       await subscriptionService.ensurePlansSeeded();
-
       const freePlan = await subscriptionService.getPlan('free');
 
+      // Generar token de verificación de email
+      const emailVerificationToken = crypto.randomBytes(32).toString('hex');
+
+      // Crear proveedor en estado pendiente
       const provider = new Provider({
         email,
         password,
@@ -239,12 +233,27 @@ class AuthController {
         billing: {
           commissionRate: freePlan.features.commissionRate
         },
-        roles: ['client', 'provider']
+        roles: ['client', 'provider'],
+        isActive: false, // No activo hasta verificar email
+        emailVerified: false, // No verificado aún
+        emailVerificationToken
       });
 
       await provider.save();
 
-      // Aplicar código de referido si aplica (50% off siguiente mes, máx 3)
+      // Enviar email de verificación
+      try {
+        const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verificar-email?token=${emailVerificationToken}`;
+        await notificationService.sendProviderNotification({
+          providerId: provider._id,
+          type: 'VERIFY_EMAIL',
+          data: { businessName, verifyUrl }
+        });
+      } catch (e) {
+        console.warn('Verification email failed:', e?.message);
+      }
+
+      // Aplicar código de referido si aplica
       if (referredByCode && typeof referredByCode === 'string') {
         try {
           const referrerId = await subscriptionService.applyReferralCode(referredByCode);
@@ -256,39 +265,36 @@ class AuthController {
         }
       }
 
-      // Mergear datos de sesión guest si existe sesión activa (paridad con cliente)
+      // Mergear datos de sesión guest si existe sesión activa
       if (req.session?.sessionId) {
         req.user = provider;
         await handleGuestMerge(req, res, () => {});
       }
 
-      // Generar tokens (access + refresh)
-      const token = generateToken(provider._id);
-      const refresh = jwt.sign({ id: provider._id }, process.env.JWT_REFRESH_SECRET, { expiresIn: '90d' });
+      // NO generar tokens para usuario no verificado
+      // Solo devolver información básica
 
-      res.cookie('refresh_token', refresh, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        maxAge: 90 * 24 * 60 * 60 * 1000
-      });
-
-      // Enviar email de bienvenida
+      // Enviar email de bienvenida (solo in-app por ahora)
       await notificationService.sendProviderNotification({
         providerId: provider._id,
         type: 'WELCOME_PROVIDER',
         data: { businessName }
       });
 
-      // Emitir actualización de contadores (servicios del proveedor, etc.)
+      // Emitir actualización de contadores
       try {
         const emitter = (await import('../websocket/services/emitterService.js')).default;
         emitter.emitCountersUpdateToUser(provider._id, { reason: 'provider_registered' });
       } catch {/* ignore */}
 
+      // En desarrollo con AUTO_VERIFY_EMAIL=true, incluir token para verificación inmediata
+      const isDev = process.env.NODE_ENV !== 'production';
+      const autoVerifyEnabled = process.env.AUTO_VERIFY_EMAIL === 'true';
+      const devVerifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verificar-email?token=${emailVerificationToken}`;
+
       res.status(201).json({
         success: true,
-        message: 'Provider registered successfully',
+        message: 'Provider registered successfully. Please verify your email.',
         data: {
           user: {
             id: provider._id,
@@ -296,9 +302,20 @@ class AuthController {
             role: provider.role,
             roles: provider.roles,
             businessName: provider.providerProfile.businessName,
-            referralCode: provider.referral.code
+            referralCode: provider.referral.code,
+            isActive: provider.isActive,
+            emailVerified: provider.emailVerified
           },
-          token
+          // NO enviamos token aquí - solo indicador de verificación pendiente
+          pendingVerification: true,
+          // En desarrollo: proporcionar URL de verificación directamente
+          ...(isDev && {
+            _dev: {
+              verifyUrl: devVerifyUrl,
+              hint: 'Usa esta URL para verificar el email en desarrollo',
+              autoVerify: autoVerifyEnabled
+            }
+          })
         }
       });
     } catch (error) {
@@ -310,154 +327,253 @@ class AuthController {
       });
     }
   }
+
   /**
-   * Upgrade explícito de cliente a proveedor (endpoint dedicado)
+   * Reenviar email de verificación (ENDPOINT PÚBLICO)
+   * No requiere autenticación - considerar agregar rate limiting
    */
-  async becomeProvider(req, res) {
+  async resendVerificationEmail(req, res) {
     try {
-      const userId = req.user?._id;
-      if (!userId) {
-        return res.status(401).json({ success: false, message: 'Authentication required' });
-      }
-
-      // Validar que NO sea ya proveedor (por role o roles[])
-      const currentUser = await User.findById(userId);
-      const isProvider = String(currentUser?.role || '').toLowerCase() === 'provider' || (currentUser?.roles || []).includes('provider');
-      if (isProvider) {
-        return res.status(400).json({ success: false, message: 'User is already a provider' });
-      }
-
-      const {
-        businessName,
-        description,
-        services,
-        serviceArea,
-        phone,
-        referredBy
-      } = req.body;
-
-      if (!businessName || typeof businessName !== 'string') {
-        return res.status(400).json({ success: false, message: 'Business name is required and must be a string' });
-      }
-
-      const referralCode = AuthController.generateReferralCode(businessName);
-
-      // Promover al usuario a Provider conservando datos existentes
-      const svcAreaSet = {};
-      if (serviceArea) {
-        if (serviceArea.coordinates) {
-          const { lat, lng } = serviceArea.coordinates;
-          const latOk = Number.isFinite(lat) && lat <= 90 && lat >= -90;
-          const lngOk = Number.isFinite(lng) && lng <= 180 && lng >= -180;
-          if (!latOk || !lngOk) {
-            return res.status(400).json({ success: false, message: 'Coordenadas fuera de rango' });
-          }
-        }
-        svcAreaSet['providerProfile.serviceArea.radius'] = serviceArea.radius;
-        svcAreaSet['providerProfile.serviceArea.zones'] = serviceArea.zones;
-        if (serviceArea.coordinates && Number.isFinite(serviceArea.coordinates.lat) && Number.isFinite(serviceArea.coordinates.lng)) {
-          svcAreaSet['providerProfile.serviceArea.coordinates'] = {
-            lat: Number(serviceArea.coordinates.lat),
-            lng: Number(serviceArea.coordinates.lng)
-          };
-          svcAreaSet['providerProfile.serviceArea.location'] = {
-            type: 'Point',
-            coordinates: [Number(serviceArea.coordinates.lng), Number(serviceArea.coordinates.lat)]
-          };
-        }
-      }
-
-      await subscriptionService.ensurePlansSeeded();
-      const freePlan = await subscriptionService.getPlan('free');
-
-      await User.updateOne(
-        { _id: userId },
-        {
-          $set: {
-            role: 'Provider',
-            'profile.firstName': businessName,
-            'profile.phone': phone,
-            'providerProfile.businessName': businessName,
-            'providerProfile.description': description,
-            'providerProfile.services': services,
-            ...svcAreaSet,
-            'subscription.plan': 'free',
-            'subscription.status': 'active',
-            'billing.commissionRate': freePlan.features.commissionRate,
-            'referral.code': referralCode,
-            'referral.referredBy': referredBy || null,
-            guestSessionId: req.session?.sessionId || null
-          },
-          $addToSet: { roles: { $each: ['provider', 'client'] } }
-        },
-        { overwriteDiscriminatorKey: true }
-      );
-
-      // Cargar el documento ya actualizado de forma segura
-      const updatedUser = await User.findById(userId);
-      if (!updatedUser || String(updatedUser.role || '').toLowerCase() !== 'provider') {
-        return res.status(500).json({ success: false, message: 'Upgrade failed: could not promote user to provider' });
-      }
-
-      // Obtener vista como Provider (puede devolver null si el discriminador no aplica aún)
-      const providerUser = await Provider.findById(userId);
-
-      // Merge de datos guest solo si tenemos currentUser válido
-      if (req.session?.sessionId && updatedUser) {
-        req.user = updatedUser; // asegurar usuario para handleGuestMerge
-        await handleGuestMerge(req, res, () => {});
-      }
-
-      const token = generateToken(userId);
-      const refresh = jwt.sign({ id: userId }, process.env.JWT_REFRESH_SECRET, { expiresIn: '90d' });
-
-      res.cookie('refresh_token', refresh, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        maxAge: 90 * 24 * 60 * 60 * 1000
-      });
-
-      // Enviar notificación de bienvenida (usar businessName de input como fallback)
-      try {
-        await notificationService.sendProviderNotification({
-          providerId: userId,
-          type: 'WELCOME_PROVIDER',
-          data: { businessName }
+      const { email } = req.body;
+      
+      if (!email) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Email is required' 
         });
-      } catch (e) {
-        console.warn('Provider welcome notification failed:', e?.message);
       }
 
-      // Emit counters update for newly upgraded provider
-      try {
-        const emitter = (await import('../websocket/services/emitterService.js')).default;
-        emitter.emitCountersUpdateToUser(userId, { reason: 'become_provider' });
-      } catch {/* ignore */}
+      // Buscar usuario por email
+      const user = await User.findOne({ email });
+      if (!user) {
+        // Por seguridad, responder igual aunque el usuario no exista
+        // Esto evita la enumeración de cuentas
+        return res.json({ 
+          success: true, 
+          message: 'If an account exists, a verification email has been sent.' 
+        });
+      }
 
-      res.status(200).json({
-        success: true,
-        message: 'Upgraded to provider successfully',
-        data: {
-          user: {
-            id: updatedUser._id,
-            email: updatedUser.email,
-            role: updatedUser.role,
-            roles: Array.isArray(updatedUser.roles) && updatedUser.roles.length ? updatedUser.roles : ['client', 'provider'],
-            businessName: providerUser?.providerProfile?.businessName || businessName,
-            referralCode: providerUser?.referral?.code || referralCode
-          },
-          token
+      if (user.emailVerified) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Email already verified' 
+        });
+      }
+
+      // Generar nuevo token si no existe
+      if (!user.emailVerificationToken) {
+        user.emailVerificationToken = crypto.randomBytes(32).toString('hex');
+        await user.save();
+      }
+
+      // Generar URL de verificación
+      const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verificar-email?token=${user.emailVerificationToken}`;
+      
+      // Enviar email usando notificationService
+      try {
+        const userRoles = Array.isArray(user.roles) ? user.roles : [user.role];
+        const isProvider = userRoles.includes('provider');
+        
+        if (isProvider) {
+          await notificationService.sendProviderNotification({
+            providerId: user._id,
+            type: 'VERIFY_EMAIL',
+            data: { 
+              businessName: user.providerProfile?.businessName || user.profile?.firstName,
+              verifyUrl 
+            }
+          });
+        } else {
+          await notificationService.sendClientNotification({
+            clientId: user._id,
+            type: 'VERIFY_EMAIL',
+            data: { 
+              firstName: user.profile?.firstName || 'Usuario',
+              verifyUrl 
+            }
+          });
         }
+      } catch (emailError) {
+        console.error('Error sending verification email:', emailError);
+      }
+
+      return res.json({ 
+        success: true, 
+        message: 'Verification email resent successfully' 
       });
     } catch (error) {
-      console.error('AuthController - becomeProvider error:', error);
-      res.status(500).json({ success: false, message: 'Upgrade to provider failed', error: process.env.NODE_ENV === 'development' ? error.message : undefined });
+      console.error('AuthController - resendVerificationEmail error:', error);
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to resend verification email' 
+      });
     }
   }
 
   /**
-   * Login de usuario
+   * Verificar email y activar cuenta
+   * Genera y devuelve token después de la verificación
+   */
+  async verifyEmail(req, res) {
+    try {
+      const { token } = req.body;
+
+      if (!token) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Verification token is required' 
+        });
+      }
+
+      // Find user by email verification token
+      const user = await User.findOne({ emailVerificationToken: token });
+
+      if (!user) {
+        return res.status(404).json({ 
+          success: false, 
+          message: 'Invalid or expired token' 
+        });
+      }
+
+      // Verificar que el token coincida exactamente
+      if (user.emailVerificationToken !== token) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Token does not match' 
+        });
+      }
+
+      // Activar la cuenta del usuario
+      user.isActive = true;
+      user.emailVerified = true;
+      user.emailVerificationToken = null; // Limpiar token usado
+      await user.save();
+
+      // Generar tokens de acceso
+      const accessToken = generateToken(user._id);
+      const refreshToken = jwt.sign(
+        { id: user._id }, 
+        process.env.JWT_REFRESH_SECRET, 
+        { expiresIn: '90d' }
+      );
+
+      // Establecer cookie de refresh token
+      res.cookie('refresh_token', refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 90 * 24 * 60 * 60 * 1000 // 90 días
+      });
+
+      // Preparar datos del usuario según su rol
+      let userData;
+      const userRoles = Array.isArray(user.roles) && user.roles.length > 0 
+        ? user.roles 
+        : [user.role];
+      
+      const isProvider = userRoles.includes('provider');
+      const isClient = userRoles.includes('client');
+
+      if (isProvider) {
+        const provider = await Provider.findById(user._id)
+          .populate('providerProfile.rating');
+        userData = {
+          id: provider._id,
+          email: provider.email,
+          role: provider.role,
+          roles: provider.roles && provider.roles.length ? provider.roles : ['client','provider'],
+          profile: provider.profile,
+          providerProfile: provider.providerProfile,
+          subscription: provider.subscription,
+          billing: provider.billing,
+          referral: provider.referral,
+          isActive: provider.isActive,
+          emailVerified: provider.emailVerified
+        };
+      } else if (isClient) {
+        const client = await Client.findById(user._id);
+        userData = {
+          id: client._id,
+          email: client.email,
+          role: client.role,
+          roles: client.roles && client.roles.length ? client.roles : ['client'],
+          profile: client.profile,
+          isActive: client.isActive,
+          emailVerified: client.emailVerified
+        };
+      } else {
+        userData = {
+          id: user._id,
+          email: user.email,
+          role: user.role,
+          roles: user.roles,
+          profile: user.profile,
+          isActive: user.isActive,
+          emailVerified: user.emailVerified
+        };
+      }
+
+      return res.json({
+        success: true,
+        message: 'Email verified and account activated successfully',
+        user: userData,
+        token: accessToken // Token de acceso para el frontend
+      });
+    } catch (error) {
+      console.error('AuthController - verifyEmail error:', error);
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to verify email' 
+      });
+    }
+  }
+
+  /**
+   * Verificar disponibilidad de email
+   */
+  async checkEmailAvailability(req, res) {
+    try {
+      const { email } = req.query;
+
+      if (!email || typeof email !== 'string') {
+        return res.status(400).json({
+          success: false,
+          message: 'Email is required'
+        });
+      }
+
+      // Validar formato básico
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid email format',
+          available: false
+        });
+      }
+
+      // Verificar si existe en la base de datos
+      const existingUser = await User.findOne({ email }).select('_id');
+      const available = !existingUser;
+
+      return res.json({
+        success: true,
+        available,
+        message: available ? 'Email is available' : 'Email is already registered'
+      });
+    } catch (error) {
+      console.error('AuthController - checkEmailAvailability error:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Error checking email availability',
+        available: false
+      });
+    }
+  }
+
+  /**
+   * Login de usuario (solo usuarios verificados)
    */
   async login(req, res) {
     try {
@@ -469,6 +585,14 @@ class AuthController {
         return res.status(401).json({
           success: false,
           message: 'Invalid email or password'
+        });
+      }
+
+      // Bloquear si el usuario no ha verificado su email
+      if (!user.emailVerified) {
+        return res.status(401).json({
+          success: false,
+          message: 'Debes verificar tu correo electrónico para acceder.'
         });
       }
 
@@ -495,7 +619,7 @@ class AuthController {
         maxAge: 90 * 24 * 60 * 60 * 1000
       });
 
-      // Preparar respuesta según el rol (normalizado a minúsculas)
+      // Preparar respuesta según el rol
       let userData;
       const r = String(user.role || '').toLowerCase();
       switch (r) {
@@ -552,8 +676,148 @@ class AuthController {
   }
 
   /**
+   * Upgrade explícito de cliente a proveedor
+   */
+  async becomeProvider(req, res) {
+    try {
+      const userId = req.user?._id;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: 'Authentication required' });
+      }
+
+      // Validar que NO sea ya proveedor
+      const currentUser = await User.findById(userId);
+      const isProvider = String(currentUser?.role || '').toLowerCase() === 'provider' || 
+                        (currentUser?.roles || []).includes('provider');
+      if (isProvider) {
+        return res.status(400).json({ success: false, message: 'User is already a provider' });
+      }
+
+      const {
+        businessName,
+        description,
+        services,
+        serviceArea,
+        phone,
+        referredBy
+      } = req.body;
+
+      if (!businessName || typeof businessName !== 'string') {
+        return res.status(400).json({ success: false, message: 'Business name is required and must be a string' });
+      }
+
+      const referralCode = AuthController.generateReferralCode(businessName);
+
+      const svcAreaSet = {};
+      if (serviceArea) {
+        if (serviceArea.coordinates) {
+          const { lat, lng } = serviceArea.coordinates;
+          const latOk = Number.isFinite(lat) && lat <= 90 && lat >= -90;
+          const lngOk = Number.isFinite(lng) && lng <= 180 && lng >= -180;
+          if (!latOk || !lngOk) {
+            return res.status(400).json({ success: false, message: 'Coordenadas fuera de rango' });
+          }
+        }
+        svcAreaSet['providerProfile.serviceArea.radius'] = serviceArea.radius;
+        svcAreaSet['providerProfile.serviceArea.zones'] = serviceArea.zones;
+        if (serviceArea.coordinates && Number.isFinite(serviceArea.coordinates.lat) && Number.isFinite(serviceArea.coordinates.lng)) {
+          svcAreaSet['providerProfile.serviceArea.coordinates'] = {
+            lat: Number(serviceArea.coordinates.lat),
+            lng: Number(serviceArea.coordinates.lng)
+          };
+          svcAreaSet['providerProfile.serviceArea.location'] = {
+            type: 'Point',
+            coordinates: [Number(serviceArea.coordinates.lng), Number(serviceArea.coordinates.lat)]
+          };
+        }
+      }
+
+      await subscriptionService.ensurePlansSeeded();
+      const freePlan = await subscriptionService.getPlan('free');
+
+      await User.updateOne(
+        { _id: userId },
+        {
+          $set: {
+            role: 'Provider',
+            'profile.firstName': businessName,
+            'profile.phone': phone,
+            'providerProfile.businessName': businessName,
+            'providerProfile.description': description,
+            'providerProfile.services': services,
+            ...svcAreaSet,
+            'subscription.plan': 'free',
+            'subscription.status': 'active',
+            'billing.commissionRate': freePlan.features.commissionRate,
+            'referral.code': referralCode,
+            'referral.referredBy': referredBy || null,
+            guestSessionId: req.session?.sessionId || null
+          },
+          $addToSet: { roles: { $each: ['provider', 'client'] } }
+        },
+        { overwriteDiscriminatorKey: true }
+      );
+
+      const updatedUser = await User.findById(userId);
+      if (!updatedUser || String(updatedUser.role || '').toLowerCase() !== 'provider') {
+        return res.status(500).json({ success: false, message: 'Upgrade failed: could not promote user to provider' });
+      }
+
+      const providerUser = await Provider.findById(userId);
+
+      if (req.session?.sessionId && updatedUser) {
+        req.user = updatedUser;
+        await handleGuestMerge(req, res, () => {});
+      }
+
+      const token = generateToken(userId);
+      const refresh = jwt.sign({ id: userId }, process.env.JWT_REFRESH_SECRET, { expiresIn: '90d' });
+
+      res.cookie('refresh_token', refresh, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 90 * 24 * 60 * 60 * 1000
+      });
+
+      try {
+        await notificationService.sendProviderNotification({
+          providerId: userId,
+          type: 'WELCOME_PROVIDER',
+          data: { businessName }
+        });
+      } catch (e) {
+        console.warn('Provider welcome notification failed:', e?.message);
+      }
+
+      try {
+        const emitter = (await import('../websocket/services/emitterService.js')).default;
+        emitter.emitCountersUpdateToUser(userId, { reason: 'become_provider' });
+      } catch {/* ignore */}
+
+      res.status(200).json({
+        success: true,
+        message: 'Upgraded to provider successfully',
+        data: {
+          user: {
+            id: updatedUser._id,
+            email: updatedUser.email,
+            role: updatedUser.role,
+            roles: Array.isArray(updatedUser.roles) && updatedUser.roles.length ? updatedUser.roles : ['client', 'provider'],
+            businessName: providerUser?.providerProfile?.businessName || businessName,
+            referralCode: providerUser?.referral?.code || referralCode
+          },
+          token
+        }
+      });
+    } catch (error) {
+      console.error('AuthController - becomeProvider error:', error);
+      res.status(500).json({ success: false, message: 'Upgrade to provider failed', error: process.env.NODE_ENV === 'development' ? error.message : undefined });
+    }
+  }
+
+  /**
    * Solicitar restablecimiento de contraseña
-   * Responde genéricamente para evitar enumeración de cuentas
    */
   async forgotPassword(req, res) {
     try {
@@ -572,15 +836,12 @@ class AuthController {
         return res.status(200).json(genericResponse);
       }
 
-      // Generar token aleatorio y hash para almacenar
       const rawToken = crypto.randomBytes(32).toString('hex');
       const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
-      const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 60 minutos
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
 
-      // Limpiar tokens anteriores del usuario
       await PasswordResetToken.deleteMany({ user: user._id });
 
-      // Guardar token
       await PasswordResetToken.create({
         user: user._id,
         tokenHash,
@@ -592,7 +853,6 @@ class AuthController {
       const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
       const resetUrl = `${frontendUrl}/restablecer-contrasena?token=${rawToken}&uid=${user._id}`;
 
-      // Enviar email (simulado por consola en este entorno)
       await resendService.sendEmail({
         to: user.email,
         subject: 'Restablecer contraseña',
@@ -607,7 +867,6 @@ class AuthController {
       return res.status(200).json(genericResponse);
     } catch (error) {
       console.error('AuthController - forgotPassword error:', error);
-      // Respuesta genérica para evitar filtrado
       return res.status(200).json({
         success: true,
         message: 'If an account exists, an email has been sent with instructions.'
@@ -648,16 +907,13 @@ class AuthController {
         return res.status(400).json({ success: false, message: 'Invalid token' });
       }
 
-      // Actualizar contraseña (se hashea en pre-save)
       user.password = password;
       await user.save();
 
-      // Marcar token como usado e invalidar el resto
       record.usedAt = new Date();
       await record.save();
       await PasswordResetToken.deleteMany({ user: uid, _id: { $ne: record._id } });
 
-      // Email de confirmación (opcional)
       try {
         await resendService.sendEmail({
           to: user.email,
@@ -669,7 +925,6 @@ class AuthController {
           }
         });
       } catch (e) {
-        // No bloquear por fallo de notificación
         console.warn('Password reset confirmation email failed:', e?.message);
       }
 
@@ -693,8 +948,6 @@ class AuthController {
       const hasClient = userRoles.includes('client');
       const r = String(req.user.role || '').toLowerCase();
 
-      // Para usuarios multi-rol, buscar en Provider (que tiene toda la info)
-      // ya que Provider extiende de User y puede tener tanto clientProfile como providerProfile
       if (hasProvider) {
         const provider = await Provider.findById(req.user._id)
           .populate('providerProfile.rating');
@@ -708,9 +961,10 @@ class AuthController {
           subscription: provider.subscription,
           billing: provider.billing,
           referral: provider.referral,
-          score: provider.score
+          score: provider.score,
+          isActive: provider.isActive,
+          emailVerified: provider.emailVerified
         };
-        // Si también es cliente, agregar clientProfile si existe
         if (hasClient && provider.clientProfile) {
           userData.clientProfile = provider.clientProfile;
         }
@@ -725,7 +979,9 @@ class AuthController {
           roles: client.roles && client.roles.length ? client.roles : ['client'],
           profile: client.profile,
           contact: client.contact,
-          clientProfile: client.clientProfile
+          clientProfile: client.clientProfile,
+          isActive: client.isActive,
+          emailVerified: client.emailVerified
         };
       } else {
         userData = {
@@ -733,7 +989,9 @@ class AuthController {
           email: req.user.email,
           role: req.user.role,
           roles: req.user.roles,
-          profile: req.user.profile
+          profile: req.user.profile,
+          isActive: req.user.isActive,
+          emailVerified: req.user.emailVerified
         };
       }
 
@@ -762,7 +1020,6 @@ class AuthController {
       switch (r) {
         case 'provider': {
           const svcArea = updateData.serviceArea;
-          // Construir actualización garantizando GeoJSON si hay lat/lng
           const setOps = {
             'profile': updateData.profile,
             'providerProfile.businessName': updateData.businessName,
@@ -791,7 +1048,6 @@ class AuthController {
                 coordinates: [Number(svcArea.coordinates.lng), Number(svcArea.coordinates.lat)]
               };
             } else {
-              // Si se quitó la ubicación, eliminamos el punto geo para evitar índice inválido
               setOps['providerProfile.serviceArea.location'] = undefined;
             }
           }
@@ -800,7 +1056,6 @@ class AuthController {
             { $set: setOps },
             { new: true, runValidators: true }
           );
-          // Emit counters update if services changed (affects 'Servicios' count) or availability changes might impact jobs list
           try {
             const changedKeys = Object.keys(setOps || {});
             if (changedKeys.some(k => k === 'providerProfile.services')) {
@@ -810,7 +1065,6 @@ class AuthController {
           } catch {/* ignore */}
           break;
         }
-          break;
         case 'client':
           user = await Client.findByIdAndUpdate(
             req.user._id,
@@ -860,23 +1114,11 @@ class AuthController {
   }
 
   /**
-   * Aplicar descuento por referido
-   */
-  static async applyReferralDiscount(referralCode, newProviderId) {
-    try {
-      // Deprecated in favor of subscriptionService.applyReferralCode
-      await subscriptionService.applyReferralCode(referralCode);
-    } catch (error) {
-      console.error('AuthController - applyReferralDiscount error:', error);
-    }
-  }
-
-  /**
    * Agregar items al portfolio del proveedor
    */
   async addPortfolioItems(req, res) {
     try {
-      const { portfolio } = req.body; // Array de items: [{ url, cloudinaryId, type, caption, category }]
+      const { portfolio } = req.body;
 
       if (!Array.isArray(portfolio) || portfolio.length === 0) {
         return res.status(400).json({
@@ -885,7 +1127,6 @@ class AuthController {
         });
       }
 
-      // Verificar que el usuario sea proveedor
       const provider = await Provider.findById(req.user._id);
       if (!provider) {
         return res.status(404).json({
@@ -894,7 +1135,6 @@ class AuthController {
         });
       }
 
-      // Agregar items al portfolio
       const portfolioItems = portfolio.map(item => ({
         url: item.url,
         cloudinaryId: item.cloudinaryId,
@@ -941,7 +1181,6 @@ class AuthController {
         });
       }
 
-      // Encontrar y eliminar el item
       const itemIndex = provider.providerProfile.portfolio.findIndex(
         item => item._id.toString() === itemId
       );
@@ -955,7 +1194,6 @@ class AuthController {
 
       const item = provider.providerProfile.portfolio[itemIndex];
       
-      // Eliminar de Cloudinary si tiene cloudinaryId
       if (item.cloudinaryId) {
         try {
           const cloudinary = (await import('../config/cloudinary.js')).default;
@@ -964,11 +1202,9 @@ class AuthController {
           });
         } catch (cloudinaryError) {
           console.error('Failed to delete from Cloudinary:', cloudinaryError);
-          // Continuar con la eliminación del registro aunque falle Cloudinary
         }
       }
 
-      // Eliminar del array
       provider.providerProfile.portfolio.splice(itemIndex, 1);
       await provider.save();
 

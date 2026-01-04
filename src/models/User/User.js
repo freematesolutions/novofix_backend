@@ -1,6 +1,7 @@
 // models/User/User.js
 import mongoose from 'mongoose';
 import bcryptjs from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 
 const userSchema = new mongoose.Schema({
   email: {
@@ -15,6 +16,14 @@ const userSchema = new mongoose.Schema({
     required: function() {
       return this.role !== 'guest';
     }
+  },
+  emailVerified: {
+    type: Boolean,
+    default: false
+  },
+  emailVerificationToken: {
+    type: String,
+    default: null
   },
   // role se maneja automáticamente por el discriminatorKey
   profile: {
@@ -81,6 +90,16 @@ userSchema.pre('save', async function(next) {
 
 userSchema.methods.correctPassword = async function(candidatePassword, userPassword) {
   return await bcryptjs.compare(candidatePassword, userPassword);
+};
+
+userSchema.methods.generateAuthToken = function() {
+  const payload = {
+    id: this._id,
+    email: this.email,
+    role: this.role,
+    roles: this.roles
+  };
+  return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
 };
 
 const User = mongoose.model('User', userSchema);

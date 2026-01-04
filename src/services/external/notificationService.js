@@ -111,6 +111,16 @@ class NotificationService {
           priority: 'high'
         };
 
+      case 'VERIFY_EMAIL':
+        return {
+          ...baseData,
+          subject: 'Verifica tu correo electrónico',
+          message: 'Por favor verifica tu correo electrónico para activar tu cuenta.',
+          actionUrl: extra.verifyUrl || '/verificar-email',
+          priority: 'medium',
+          emailTemplate: 'verify_email'
+        };
+
       default:
         return baseData;
     }
@@ -118,16 +128,35 @@ class NotificationService {
 
   async sendEmailNotification(provider, notificationData) {
     try {
-      const emailData = {
-        to: provider.email,
-        subject: notificationData.subject,
-        template: notificationData.emailTemplate,
-        data: {
-          providerName: provider.profile?.firstName,
-          serviceRequest: notificationData.serviceRequest,
-          actionUrl: `${process.env.FRONTEND_URL}${notificationData.actionUrl}`
+      let emailData;
+      if (notificationData.emailTemplate === 'verify_email') {
+        // Solo pasar los datos requeridos para verificación
+        emailData = {
+          to: provider?.email || '',
+          subject: notificationData.subject || 'Verifica tu correo electrónico',
+          template: 'verify_email',
+          data: {
+            name: (provider && provider.profile && provider.profile.firstName) ? provider.profile.firstName : (provider?.email || ''),
+            verifyUrl: notificationData.actionUrl || ''
+          }
+        };
+      } else {
+        // Solo pasar serviceRequest si existe y es objeto
+        let safeServiceRequest = undefined;
+        if (notificationData.serviceRequest && typeof notificationData.serviceRequest === 'object') {
+          safeServiceRequest = notificationData.serviceRequest;
         }
-      };
+        emailData = {
+          to: provider?.email || '',
+          subject: notificationData.subject || '',
+          template: notificationData.emailTemplate,
+          data: {
+            providerName: (provider && provider.profile && provider.profile.firstName) ? provider.profile.firstName : '',
+            serviceRequest: safeServiceRequest,
+            actionUrl: notificationData.actionUrl ? `${process.env.FRONTEND_URL || ''}${notificationData.actionUrl}` : ''
+          }
+        };
+      }
 
       await resendService.sendEmail(emailData);
       notificationData.channels.push('email');
@@ -212,14 +241,33 @@ class NotificationService {
 
       const notificationData = this.buildClientNotificationData(client, type, data);
 
-      // En este primer paso priorizamos la notificación in-app (campana)
+      // Siempre crear notificación in-app (campana)
       await this.createInAppNotification(clientId, 'Client', {
         ...notificationData,
         priority
       });
 
-      // Email / WhatsApp opcionales en el futuro (plantillas y preferencias de cliente)
-      return { success: true, channels: ['in_app'], message: 'Client notification created' };
+      // Enviar email de verificación si corresponde
+      if (type === 'VERIFY_EMAIL') {
+        // Usar plantilla simple para verificación, solo con los datos requeridos
+        const verifyUrl = data.verifyUrl || notificationData.actionUrl || '/verificar-email';
+        const emailData = {
+          to: client.email,
+          subject: notificationData.subject || 'Verifica tu correo electrónico',
+          template: 'verify_email',
+          data: {
+            name: client.profile?.firstName || client.email,
+            verifyUrl
+          }
+        };
+        try {
+          await resendService.sendEmail(emailData);
+        } catch (err) {
+          console.error('NotificationService - sendClientNotification VERIFY_EMAIL error:', err);
+        }
+      }
+
+      return { success: true, channels: ['in_app', ...(type === 'VERIFY_EMAIL' ? ['email'] : [])], message: 'Client notification created' };
     } catch (error) {
       console.error('NotificationService - sendClientNotification error:', error);
       throw error;
@@ -254,6 +302,15 @@ class NotificationService {
           message: extra?.message || 'Hemos confirmado tu reserva con el profesional.',
           actionUrl: '/reservas',
           priority: 'high'
+        };
+      case 'VERIFY_EMAIL':
+        return {
+          ...base,
+          subject: 'Verifica tu correo electrónico',
+          message: 'Por favor verifica tu correo electrónico para activar tu cuenta.',
+          actionUrl: extra.verifyUrl || '/verificar-email',
+          priority: 'medium',
+          emailTemplate: 'verify_email'
         };
       default:
         return {

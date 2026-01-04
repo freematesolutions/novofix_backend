@@ -1,6 +1,8 @@
 import { createClient } from 'redis';
 import { config } from 'dotenv';
 
+import fs from 'fs';
+
 config();
 
 class RedisClient {
@@ -12,7 +14,6 @@ class RedisClient {
 
   async connect() {
     try {
-        const useTLS = process.env.REDIS_TLS === 'true';
         const redisOptions = {
           url: process.env.REDIS_URL || 'redis://localhost:6379',
           socket: {
@@ -24,8 +25,7 @@ class RedisClient {
                 return new Error('Too many retries.');
               }
               return Math.min(retries * 100, 3000);
-            },
-            tls: useTLS
+            }
           }
         };
 
@@ -37,27 +37,43 @@ class RedisClient {
         this.client = createClient(redisOptions);
 
       // Manejar eventos de conexión
+
+      const logRedisEvent = (type, details) => {
+        const timestamp = new Date().toISOString();
+        const msg = `[${timestamp}] [${type}] ${details}`;
+        console.log(msg);
+        // Guardar en archivo de log
+        try {
+          fs.appendFileSync('redis-events.log', msg + '\n');
+        } catch (e) {
+          console.error('No se pudo escribir en redis-events.log:', e.message);
+        }
+      };
+
       this.client.on('connect', () => {
-        console.log('🟡 Redis: Connecting...');
+        logRedisEvent('CONNECT', '🟡 Redis: Connecting...');
       });
 
       this.client.on('ready', () => {
         this.isConnected = true;
-        console.log('✅ Redis: Connected and ready');
+        logRedisEvent('READY', '✅ Redis: Connected and ready');
       });
 
       this.client.on('error', (err) => {
         this.isConnected = false;
-        console.error('🔴 Redis Client Error:', err.message);
+        logRedisEvent('ERROR', `🔴 Redis Client Error: ${err && err.message ? err.message : err}`);
+        if (err && err.stack) {
+          logRedisEvent('ERROR_STACK', err.stack);
+        }
       });
 
       this.client.on('end', () => {
         this.isConnected = false;
-        console.log('🔴 Redis: Connection closed');
+        logRedisEvent('END', '🔴 Redis: Connection closed');
       });
 
-      this.client.on('reconnecting', () => {
-        console.log('🟡 Redis: Reconnecting...');
+      this.client.on('reconnecting', (delay) => {
+        logRedisEvent('RECONNECTING', `🟡 Redis: Reconnecting... (delay: ${delay || 'default'}ms)`);
       });
 
       // Conectar al cliente

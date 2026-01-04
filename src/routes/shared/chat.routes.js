@@ -2,6 +2,7 @@
 import express from 'express';
 const router = express.Router();
 import chatController from '../../controllers/chatController.js';
+import Booking from '../../models/Service/Booking.js';
 import {
   authenticateJWT,
   requireAuth
@@ -14,11 +15,14 @@ router.use(requireAuth);
 router.use(clientOrProvider);
 
 // Obtener chats del usuario
-router.get('/', chatController.getUserChats);
+router.get('/', chatController.getUserChats.bind(chatController));
+
+// Crear o obtener chat para una propuesta (negociación antes de aceptar)
+router.post('/proposal/:proposalId', chatController.createOrGetProposalChat.bind(chatController));
 
 // Gestión de mensajes específicos del chat
-router.get('/:chatId/messages', chatController.getChatMessages);
-router.post('/:chatId/messages', chatController.sendMessage);
+router.get('/:chatId/messages', chatController.getChatMessages.bind(chatController));
+router.post('/:chatId/messages', chatController.sendMessage.bind(chatController));
 
 // Crear chat para booking (usado internamente)
 router.post('/booking/:bookingId', async (req, res) => {

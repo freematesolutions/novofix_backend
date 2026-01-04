@@ -71,9 +71,11 @@ export class SocketService {
     }
 
     // Inicializar handlers para este socket
+    console.log(`🔌 Initializing handlers for socket ${socket.id}`);
     this.chatHandler.initialize(socket);
     this.bookingHandler.initialize(socket);
     this.notificationHandler.initialize(socket);
+    console.log(`✅ Handlers initialized for socket ${socket.id}`);
 
     // Manejar desconexión
     socket.on('disconnect', (reason) => {

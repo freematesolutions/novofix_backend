@@ -1,7 +1,6 @@
 import { EVENTS } from '../constants/socketEvents.js';
 import { ROOMS } from '../constants/socketRooms.js';
 import { locationUpdateSchema, bookingActionSchema, statusUpdateSchema } from '../schemas/bookingSchema.js';
-import { validatePayload } from '../middleware/schemaValidator.js';
 import Booking from '../../models/Service/Booking.js';
 
 export class BookingHandler {
@@ -10,14 +9,25 @@ export class BookingHandler {
   }
 
   initialize(socket) {
-    socket.on(EVENTS.BOOKING.TRACK, validatePayload(bookingActionSchema), this.handleTrackBooking.bind(this, socket));
-    socket.on(EVENTS.BOOKING.UNTRACK, validatePayload(bookingActionSchema), this.handleUntrackBooking.bind(this, socket));
-    socket.on(EVENTS.BOOKING.LOCATION.UPDATE, validatePayload(locationUpdateSchema), this.handleLocationUpdate.bind(this, socket));
-    socket.on(EVENTS.BOOKING.STATUS_UPDATE, validatePayload(statusUpdateSchema), this.handleStatusUpdate.bind(this, socket));
+    socket.on(EVENTS.BOOKING.TRACK, (data) => this.handleTrackBooking(socket, data));
+    socket.on(EVENTS.BOOKING.UNTRACK, (data) => this.handleUntrackBooking(socket, data));
+    socket.on(EVENTS.BOOKING.LOCATION.UPDATE, (data) => this.handleLocationUpdate(socket, data));
+    socket.on(EVENTS.BOOKING.STATUS_UPDATE, (data) => this.handleStatusUpdate(socket, data));
   }
 
-  async handleTrackBooking(socket, { bookingId }) {
+  async handleTrackBooking(socket, data) {
     try {
+      // Validate data
+      const { error, value } = bookingActionSchema.validate(data);
+      if (error) {
+        return socket.emit('error', {
+          code: 'VALIDATION_ERROR',
+          message: error.details.map(d => d.message).join(', ')
+        });
+      }
+
+      const { bookingId } = value;
+
       const booking = await Booking.findOne({
         _id: bookingId,
         $or: [
@@ -40,48 +50,91 @@ export class BookingHandler {
     }
   }
 
-  handleUntrackBooking(socket, { bookingId }) {
-    socket.leave(ROOMS.BOOKING(bookingId));
-    console.log(`User ${socket.userId} stopped tracking booking: ${bookingId}`);
+  handleUntrackBooking(socket, data) {
+    try {
+      // Validate data
+      const { error, value } = bookingActionSchema.validate(data);
+      if (error) {
+        return;
+      }
+
+      const { bookingId } = value;
+      socket.leave(ROOMS.BOOKING(bookingId));
+      console.log(`User ${socket.userId} stopped tracking booking: ${bookingId}`);
+    } catch (error) {
+      // Silent fail
+    }
   }
 
   handleLocationUpdate(socket, locationData) {
-    const { bookingId, location } = locationData;
+    try {
+      // Validate data
+      const { error, value } = locationUpdateSchema.validate(locationData);
+      if (error) {
+        return socket.emit('error', {
+          code: 'VALIDATION_ERROR',
+          message: error.details.map(d => d.message).join(', ')
+        });
+      }
 
-    // Verificar que solo los providers pueden actualizar ubicación
-    if (socket.userRole !== 'provider') {
-      return socket.emit('error', {
-        code: 'PERMISSION_ERROR',
-        message: 'Only providers can update location'
+      const { bookingId, location } = value;
+
+      // Verificar que solo los providers pueden actualizar ubicación
+      if (socket.userRole !== 'provider') {
+        return socket.emit('error', {
+          code: 'PERMISSION_ERROR',
+          message: 'Only providers can update location'
+        });
+      }
+      
+      // Emitir a cliente y admin que están trackeando este booking
+      socket.to(ROOMS.BOOKING(bookingId)).emit(EVENTS.BOOKING.LOCATION.CHANGED, {
+        bookingId,
+        providerId: socket.userId,
+        providerName: socket.userData.name,
+        location: {
+          ...location,
+          timestamp: new Date()
+        }
+      });
+
+      console.log(`Location update for booking ${bookingId} by provider ${socket.userId}`);
+    } catch (error) {
+      socket.emit('error', {
+        code: 'LOCATION_ERROR',
+        message: error.message
       });
     }
-    
-    // Emitir a cliente y admin que están trackeando este booking
-    socket.to(ROOMS.BOOKING(bookingId)).emit(EVENTS.BOOKING.LOCATION.CHANGED, {
-      bookingId,
-      providerId: socket.userId,
-      providerName: socket.userData.name,
-      location: {
-        ...location,
-        timestamp: new Date()
-      }
-    });
-
-    console.log(`Location update for booking ${bookingId} by provider ${socket.userId}`);
   }
 
   handleStatusUpdate(socket, statusData) {
-    const { bookingId, status, previousStatus, notes } = statusData;
-    
-    this.io.to(ROOMS.BOOKING(bookingId)).emit(EVENTS.BOOKING.STATUS.CHANGED, {
-      bookingId,
-      status,
-      previousStatus,
-      notes,
-      updatedBy: socket.userId,
-      timestamp: new Date()
-    });
+    try {
+      // Validate data
+      const { error, value } = statusUpdateSchema.validate(statusData);
+      if (error) {
+        return socket.emit('error', {
+          code: 'VALIDATION_ERROR',
+          message: error.details.map(d => d.message).join(', ')
+        });
+      }
 
-    console.log(`Status update for booking ${bookingId}: ${status}`);
+      const { bookingId, status, previousStatus, notes } = value;
+      
+      this.io.to(ROOMS.BOOKING(bookingId)).emit(EVENTS.BOOKING.STATUS.CHANGED, {
+        bookingId,
+        status,
+        previousStatus,
+        notes,
+        updatedBy: socket.userId,
+        timestamp: new Date()
+      });
+
+      console.log(`Status update for booking ${bookingId}: ${status}`);
+    } catch (error) {
+      socket.emit('error', {
+        code: 'STATUS_ERROR',
+        message: error.message
+      });
+    }
   }
 }

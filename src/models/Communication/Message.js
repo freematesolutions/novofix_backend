@@ -10,11 +10,11 @@ const messageSchema = new mongoose.Schema({
   sender: {
     type: mongoose.Schema.Types.ObjectId,
     refPath: 'senderModel',
-    required: true
+    required: false // Optional for system messages
   },
   senderModel: {
     type: String,
-    enum: ['Client', 'Provider'],
+    enum: ['Client', 'Provider', 'System'],
     required: true
   },
   content: {

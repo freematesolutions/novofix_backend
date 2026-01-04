@@ -14,10 +14,27 @@ const chatSchema = new mongoose.Schema({
       required: true
     }
   },
+  // Contexto del chat - uno de estos debe estar presente
   booking: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Booking',
-    required: true
+    required: false // Cambiado a no requerido
+  },
+  proposal: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Proposal',
+    required: false // Para chats de negociación antes de aceptar
+  },
+  serviceRequest: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'ServiceRequest',
+    required: false // Referencia opcional a la solicitud
+  },
+  // Tipo de chat para distinguir contexto
+  chatType: {
+    type: String,
+    enum: ['booking', 'proposal_negotiation', 'inquiry'],
+    default: 'booking'
   },
   status: {
     type: String,
@@ -40,6 +57,8 @@ const chatSchema = new mongoose.Schema({
 
 chatSchema.index({ 'participants.client': 1, 'participants.provider': 1 });
 chatSchema.index({ booking: 1 });
+chatSchema.index({ proposal: 1 });
+chatSchema.index({ serviceRequest: 1 });
 chatSchema.index({ 'metadata.lastActivity': -1 });
 
 const Chat = mongoose.model('Chat', chatSchema);

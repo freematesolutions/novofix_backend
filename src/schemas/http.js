@@ -26,7 +26,7 @@ export const createServiceRequestSchema = Joi.object({
   budget: Joi.object({
     amount: Joi.number().positive().required(),
     currency: Joi.string().uppercase().length(3).default('USD')
-  }).required(),
+  }).optional(),
   photos: Joi.array().items(Joi.object({
     url: Joi.string().uri().required(),
     cloudinaryId: Joi.string().allow('', null),

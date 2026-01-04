@@ -27,6 +27,8 @@ router.get('/check-email', authController.checkEmailAvailability);
 router.post('/register/client', attachGuest, authController.registerClient);
 router.post('/register/provider', attachGuest, authController.registerProvider);
 router.post('/login', authController.login);
+// Reenviar email de verificación (requiere token provisional, no requiere email verificado)
+router.post('/resend-verification', authenticateJWT, authController.resendVerificationEmail);
 // Refresh token -> entrega nuevo access token y renueva refresh (cookie)
 router.post('/refresh', refreshToken, (req, res) => {
   // Setear nuevo refresh token en cookie httpOnly para seguridad
@@ -81,5 +83,8 @@ router.post('/merge-guest', authenticateJWT, handleGuestMerge, (req, res) => {
     data: req.guestMerge
   });
 });
+
+// Verify email endpoint
+router.post('/verify-email', authController.verifyEmail);
 
 export default router;

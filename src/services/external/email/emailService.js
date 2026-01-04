@@ -1,5 +1,5 @@
-import dotenv from 'dotenv';
-dotenv.config({ path: process.env.NODE_ENV === 'production' ? './.env.production' : './.env.development' });
+// NOTA: Las variables de entorno se cargan en server.js
+// No duplicar la carga aquí para evitar inconsistencias
 
 import { Resend } from 'resend';
 import nodemailer from 'nodemailer';
@@ -514,7 +514,33 @@ class EmailService {
 
     return status;
   }
+
+  /**
+   * Re-inicializa los proveedores (útil si las variables de entorno cambian)
+   * Llamar esto después de que dotenv haya cargado las variables
+   */
+  reinitialize() {
+    console.log('[📧 EMAIL SERVICE] Re-inicializando proveedores...');
+    this.emailMode = process.env.EMAIL_MODE || (this.isDevelopment ? 'console' : 'smtp');
+    this.initializeProviders();
+    console.log(`[📧 EMAIL SERVICE] Modo actualizado: ${this.emailMode.toUpperCase()}`);
+    console.log(`[📧 EMAIL SERVICE] SMTP Transporter: ${this.smtpTransporter ? '✅ Configurado' : '❌ No disponible'}`);
+    console.log(`[📧 EMAIL SERVICE] Resend: ${this.resend ? '✅ Configurado' : '❌ No disponible'}`);
+  }
 }
 
-const emailService = new EmailService();
+// Singleton con inicialización lazy
+let emailServiceInstance = null;
+
+function getEmailService() {
+  if (!emailServiceInstance) {
+    emailServiceInstance = new EmailService();
+  }
+  return emailServiceInstance;
+}
+
+// Para compatibilidad hacia atrás, exportar una instancia
+// Pero también exportar la función para obtener instancia actualizada
+const emailService = getEmailService();
 export default emailService;
+export { getEmailService };

@@ -28,14 +28,20 @@ class NotificationService {
       const notificationData = this.buildNotificationData(provider, serviceRequest, type, data);
       const notificationPromises = [];
 
-      // Notificación por email (solo si hay plantilla definida)
-      if (provider.preferences?.notifications?.email && notificationData.emailTemplate) {
+      // VERIFY_EMAIL: SIEMPRE enviar email (crítico para activación de cuenta)
+      // Para otros tipos: respetar preferencias del usuario
+      const isVerificationEmail = type === 'VERIFY_EMAIL';
+      const shouldSendEmail = isVerificationEmail || 
+        (provider.preferences?.notifications?.email !== false && notificationData.emailTemplate);
+
+      if (shouldSendEmail && notificationData.emailTemplate) {
+        console.log(`[NotificationService] Enviando email ${type} a ${provider.email}`);
         notificationPromises.push(
           this.sendEmailNotification(provider, notificationData)
         );
       }
 
-      // Notificación por WhatsApp (solo si hay plantilla definida)
+      // Notificación por WhatsApp (solo si hay plantilla definida y número de teléfono)
       if (provider.preferences?.notifications?.sms && provider.profile?.phone && notificationData.whatsappTemplate) {
         notificationPromises.push(
           this.sendWhatsAppNotification(provider, notificationData)
@@ -260,10 +266,14 @@ class NotificationService {
             verifyUrl
           }
         };
+        console.log(`[NotificationService] Enviando VERIFY_EMAIL a cliente: ${client.email}`);
+        console.log(`[NotificationService] verifyUrl: ${verifyUrl}`);
         try {
-          await resendService.sendEmail(emailData);
+          const result = await resendService.sendEmail(emailData);
+          console.log(`[NotificationService] Email enviado exitosamente:`, result);
         } catch (err) {
           console.error('NotificationService - sendClientNotification VERIFY_EMAIL error:', err);
+          console.error('NotificationService - Email data:', JSON.stringify(emailData, null, 2));
         }
       }
 

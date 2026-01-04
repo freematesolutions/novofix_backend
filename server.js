@@ -1,34 +1,37 @@
-// Asegurar que dotenv se cargue antes de cualquier otra importación
+// Cargar variables de entorno:
+// - En producción (Render): las variables vienen del dashboard, dotenv es opcional
+// - En desarrollo: cargar desde archivo .env.development
 import dotenv from 'dotenv';
-dotenv.config({ path: './.env' }); // Cambiar la ruta al archivo .env por defecto
+
+// Determinar el archivo de entorno según NODE_ENV
+// En Render, NODE_ENV=production se configura en el dashboard ANTES de que el código se ejecute
+const envFile = process.env.NODE_ENV === 'production' 
+  ? './.env.production'  // En Render, este archivo NO existe (está en .gitignore)
+  : './.env.development';
+
+// Intentar cargar archivo .env (fallback silencioso si no existe - normal en Render)
+const result = dotenv.config({ path: envFile });
+if (result.error && process.env.NODE_ENV !== 'production') {
+  console.warn(`[dotenv] No se pudo cargar ${envFile}:`, result.error.message);
+}
 
 // Importaciones restantes
-import fs from 'fs';
 import app from './app.js';
 import http from 'http';
 import { configureSocket } from './src/config/socket.js';
 import connectDB from './src/config/database.js';
 import redisClient from './src/config/redis.js';
 
-// Log adicional para depuración
-console.log('NODE_ENV:', process.env.NODE_ENV);
-console.log('Intentando cargar archivo de entorno:', './.env');
-
-// Verificar si las variables de entorno están disponibles después de cargar dotenv
-console.log('RESEND_API_KEY:', process.env.RESEND_API_KEY || 'NO DEFINIDO');
-console.log('RESEND_FROM_EMAIL:', process.env.RESEND_FROM_EMAIL || 'NO DEFINIDO');
-
-
-// Mover el log después de cargar dotenv
-console.log('[RESEND] API KEY cargada:', process.env.RESEND_API_KEY ? process.env.RESEND_API_KEY.slice(0, 8) + '...' : 'NO DEFINIDA');
-
-
-// Cargar variables manualmente para depuración
-process.env.RESEND_API_KEY = 're_QvQMMz4a_2eVDhUZWTUQC1YhTtuN7qgzJ';
-process.env.RESEND_FROM_EMAIL = 'onboarding@resend.dev';
-
-// Log para verificar
-console.log('RESEND_API_KEY (manual):', process.env.RESEND_API_KEY);
+// Log de configuración de entorno
+console.log('='.repeat(50));
+console.log('🔧 CONFIGURACIÓN DE ENTORNO');
+console.log('='.repeat(50));
+console.log('NODE_ENV:', process.env.NODE_ENV || 'development');
+console.log('EMAIL_MODE:', process.env.EMAIL_MODE || 'no configurado');
+console.log('GMAIL_USER:', process.env.GMAIL_USER ? `${process.env.GMAIL_USER.slice(0, 5)}...` : 'NO DEFINIDO');
+console.log('GMAIL_APP_PASSWORD:', process.env.GMAIL_APP_PASSWORD ? '****configurado****' : 'NO DEFINIDO');
+console.log('FRONTEND_URL:', process.env.FRONTEND_URL || 'NO DEFINIDO');
+console.log('='.repeat(50));
 
 
 // Manejar excepciones no capturadas
@@ -79,6 +82,25 @@ async function waitForRedisReady(redisClient, timeoutMs = 20000) {
 
 async function startServer() {
   try {
+    // 0. Re-inicializar servicio de email AHORA que las variables de entorno están disponibles
+    // Esto es necesario porque el módulo puede haberse importado antes de cargar dotenv
+    try {
+      const { getEmailService } = await import('./src/services/external/email/emailService.js');
+      const emailService = getEmailService();
+      emailService.reinitialize();
+      
+      // Verificar conexión SMTP
+      const status = await emailService.getServiceStatus();
+      console.log('[📧 EMAIL] Estado del servicio:', {
+        mode: status.mode,
+        smtpConfigured: status.smtp.configured,
+        smtpVerified: status.smtpVerified,
+        smtpError: status.smtpError || 'ninguno'
+      });
+    } catch (emailErr) {
+      console.warn('[📧 EMAIL] Error al inicializar servicio de email:', emailErr.message);
+    }
+
     // 1. Conectar a MongoDB
     await connectDB();
 
@@ -98,7 +120,7 @@ async function startServer() {
       console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
       console.log(`🔗 Frontend URL: ${process.env.FRONTEND_URL}`);
       console.log(`🗄️ Database: Connected`);
-      console.log(`📧 Email Service: ${process.env.RESEND_API_KEY ? 'Ready' : 'Not configured'}`);
+      console.log(`📧 Email: ${process.env.EMAIL_MODE || 'auto'} (GMAIL: ${process.env.GMAIL_USER ? '✅' : '❌'})`);
       console.log(`☁️ Cloudinary: ${process.env.CLOUDINARY_CLOUD_NAME ? 'Ready' : 'Not configured'}`);
       console.log(`💳 Stripe: ${process.env.STRIPE_SECRET_KEY ? 'Ready' : 'Not configured'}`);
       console.log(`🧠 Redis: Connected`);

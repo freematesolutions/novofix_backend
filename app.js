@@ -186,6 +186,8 @@ app.get('/health', async (req, res) => {
     const { getEmailService } = await import('./src/services/external/email/emailService.js');
     const emailService = getEmailService();
     const emailStatus = await emailService.getServiceStatus();
+    
+    const autoVerifyEnabled = process.env.AUTO_VERIFY_EMAIL === 'true';
 
     res.json({
       status: 'ok',
@@ -196,14 +198,25 @@ app.get('/health', async (req, res) => {
         email: {
           mode: emailStatus.mode,
           smtpConfigured: emailStatus.smtp?.configured || false,
-          smtpVerified: emailStatus.smtpVerified || false
+          smtpVerified: emailStatus.smtpVerified || false,
+          sendgridConfigured: emailStatus.sendgrid?.configured || false,
+          resendConfigured: emailStatus.resend?.configured || false
         }
+      },
+      features: {
+        autoVerifyEmail: autoVerifyEnabled,
+        autoVerifyHint: autoVerifyEnabled 
+          ? '✅ Modo demo activo: usuarios se verifican automáticamente' 
+          : '❌ Verificación por email requerida'
       },
       envCheck: {
         FRONTEND_URL: !!process.env.FRONTEND_URL,
         GMAIL_USER: !!process.env.GMAIL_USER,
         GMAIL_APP_PASSWORD: !!process.env.GMAIL_APP_PASSWORD,
-        EMAIL_MODE: process.env.EMAIL_MODE || 'auto'
+        SENDGRID_API_KEY: !!process.env.SENDGRID_API_KEY,
+        RESEND_API_KEY: !!process.env.RESEND_API_KEY,
+        EMAIL_MODE: process.env.EMAIL_MODE || 'auto',
+        AUTO_VERIFY_EMAIL: process.env.AUTO_VERIFY_EMAIL || 'false'
       }
     });
   } catch (error) {

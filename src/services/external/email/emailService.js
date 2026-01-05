@@ -6,13 +6,14 @@ import nodemailer from 'nodemailer';
 
 /**
  * Servicio de Email Unificado
- * Soporta múltiples proveedores: Gmail SMTP, Resend, Console
+ * Soporta múltiples proveedores: Resend, SendGrid, Gmail SMTP, Console
  * 
  * Modos disponibles (EMAIL_MODE):
- * - 'smtp': Usa Gmail/SMTP (ideal para producción sin dominio verificado)
- * - 'resend': Usa Resend API (requiere dominio verificado)
+ * - 'resend': Usa Resend API (requiere dominio verificado) ⭐ RECOMENDADO PARA PRODUCCIÓN
+ * - 'sendgrid': Usa SendGrid API (plan gratuito 100 emails/día)
+ * - 'smtp': Usa Gmail/SMTP (⚠️ bloqueado en Render/Heroku/Railway)
  * - 'console': Solo imprime en consola (desarrollo)
- * - 'hybrid': Intenta SMTP/Resend, fallback a consola
+ * - 'hybrid': Intenta Resend→SendGrid→SMTP, fallback a consola
  */
 class EmailService {
   constructor() {
@@ -26,20 +27,26 @@ class EmailService {
   }
 
   initializeProviders() {
-    // Configurar Nodemailer/SMTP si está disponible
-    if (process.env.SMTP_HOST || process.env.GMAIL_USER) {
-      this.smtpTransporter = this.createSmtpTransporter();
-    }
-
-    // Configurar Resend si está disponible
+    // Configurar Resend si está disponible (prioridad 1 para producción)
     if (process.env.RESEND_API_KEY) {
       this.resend = new Resend(process.env.RESEND_API_KEY);
     }
 
+    // Configurar SendGrid si está disponible (prioridad 2)
+    if (process.env.SENDGRID_API_KEY) {
+      this.sendgridApiKey = process.env.SENDGRID_API_KEY;
+    }
+
+    // Configurar Nodemailer/SMTP si está disponible (prioridad 3, puede estar bloqueado)
+    if (process.env.SMTP_HOST || process.env.GMAIL_USER) {
+      this.smtpTransporter = this.createSmtpTransporter();
+    }
+
     // Configurar email por defecto
     this.defaultFrom = process.env.EMAIL_FROM || 
+                       process.env.RESEND_FROM_EMAIL ||
+                       process.env.SENDGRID_FROM_EMAIL ||
                        process.env.GMAIL_USER || 
-                       process.env.RESEND_FROM_EMAIL || 
                        'noreply@novofix.com';
     
     this.appName = process.env.APP_NAME || 'NovoFix';
@@ -111,12 +118,16 @@ class EmailService {
           result = await this.sendViaConsole({ to, subject, template, data: safeData });
           break;
         
-        case 'smtp':
-          result = await this.sendViaSmtp({ to, subject, html });
-          break;
-        
         case 'resend':
           result = await this.sendViaResend({ to, subject, html });
+          break;
+        
+        case 'sendgrid':
+          result = await this.sendViaSendGrid({ to, subject, html });
+          break;
+        
+        case 'smtp':
+          result = await this.sendViaSmtp({ to, subject, html });
           break;
         
         case 'hybrid':
@@ -124,12 +135,14 @@ class EmailService {
           break;
         
         default:
-          // Auto-detectar mejor opción
-          console.log('[📧 EMAIL] Modo auto-detectar. SMTP:', !!this.smtpTransporter, 'Resend:', !!this.resend);
-          if (this.smtpTransporter) {
-            result = await this.sendViaSmtp({ to, subject, html });
-          } else if (this.resend) {
+          // Auto-detectar mejor opción (priorizar APIs sobre SMTP)
+          console.log('[📧 EMAIL] Modo auto-detectar. Resend:', !!this.resend, 'SendGrid:', !!this.sendgridApiKey, 'SMTP:', !!this.smtpTransporter);
+          if (this.resend) {
             result = await this.sendViaResend({ to, subject, html });
+          } else if (this.sendgridApiKey) {
+            result = await this.sendViaSendGrid({ to, subject, html });
+          } else if (this.smtpTransporter) {
+            result = await this.sendViaSmtp({ to, subject, html });
           } else {
             result = await this.sendViaConsole({ to, subject, template, data: safeData });
           }
@@ -222,6 +235,37 @@ class EmailService {
   }
 
   /**
+   * Envío via SendGrid API
+   * ✅ Plan gratuito 100 emails/día, funciona en Render
+   */
+  async sendViaSendGrid({ to, subject, html }) {
+    if (!this.sendgridApiKey) {
+      throw new Error('SendGrid no configurado. Define SENDGRID_API_KEY en .env');
+    }
+
+    const sgMail = (await import('@sendgrid/mail')).default;
+    sgMail.setApiKey(this.sendgridApiKey);
+
+    const msg = {
+      to,
+      from: this.defaultFrom,
+      subject,
+      html
+    };
+
+    const [response] = await sgMail.send(msg);
+    
+    console.log(`[📧 SENDGRID] Email enviado a ${to} - Status: ${response.statusCode}`);
+    
+    return { 
+      success: true, 
+      messageId: response.headers['x-message-id'], 
+      via: 'sendgrid',
+      statusCode: response.statusCode
+    };
+  }
+
+  /**
    * Modo consola: Imprime email en terminal (desarrollo)
    */
   sendViaConsole({ to, subject, template, data }) {
@@ -254,19 +298,11 @@ class EmailService {
   }
 
   /**
-   * Modo híbrido: Intenta SMTP → Resend → Console
+   * Modo híbrido: Intenta Resend → SendGrid → SMTP → Console
+   * Prioriza APIs sobre SMTP (que suele estar bloqueado en PaaS)
    */
   async sendViaHybrid({ to, subject, template, data, html }) {
-    // 1. Intentar SMTP primero (más confiable)
-    if (this.smtpTransporter) {
-      try {
-        return await this.sendViaSmtp({ to, subject, html });
-      } catch (error) {
-        console.warn(`⚠️ SMTP falló: ${error.message}`);
-      }
-    }
-
-    // 2. Intentar Resend
+    // 1. Intentar Resend primero (mejor opción si dominio verificado)
     if (this.resend) {
       try {
         return await this.sendViaResend({ to, subject, html });
@@ -275,8 +311,26 @@ class EmailService {
       }
     }
 
-    // 3. Fallback a consola
-    console.warn('⚠️ Usando fallback a consola...');
+    // 2. Intentar SendGrid
+    if (this.sendgridApiKey) {
+      try {
+        return await this.sendViaSendGrid({ to, subject, html });
+      } catch (error) {
+        console.warn(`⚠️ SendGrid falló: ${error.message}`);
+      }
+    }
+
+    // 3. Intentar SMTP (probablemente bloqueado en producción)
+    if (this.smtpTransporter) {
+      try {
+        return await this.sendViaSmtp({ to, subject, html });
+      } catch (error) {
+        console.warn(`⚠️ SMTP falló: ${error.message}`);
+      }
+    }
+
+    // 4. Fallback a consola
+    console.warn('⚠️ Todos los proveedores fallaron, usando consola...');
     return this.sendViaConsole({ to, subject, template, data });
   }
 
@@ -522,25 +576,33 @@ class EmailService {
       isDevelopment: this.isDevelopment,
       smtp: {
         configured: !!this.smtpTransporter,
-        user: process.env.GMAIL_USER || process.env.SMTP_USER || null
+        user: process.env.GMAIL_USER || process.env.SMTP_USER || null,
+        warning: this.smtpTransporter ? '⚠️ SMTP bloqueado en Render/Heroku' : null
       },
       resend: {
-        configured: !!this.resend
+        configured: !!this.resend,
+        recommended: true
+      },
+      sendgrid: {
+        configured: !!this.sendgridApiKey,
+        freeTier: '100 emails/día'
       },
       defaultFrom: this.defaultFrom,
       providers: {
         smtp: !!this.smtpTransporter,
         resend: !!this.resend,
+        sendgrid: !!this.sendgridApiKey,
         console: true
       },
-      ready: true
+      ready: !!(this.resend || this.sendgridApiKey || this.smtpTransporter)
     };
 
-    // Verificar SMTP si está configurado
+    // Verificar SMTP si está configurado (probablemente fallará en producción)
     if (this.smtpTransporter) {
       try {
         await this.smtpTransporter.verify();
         status.smtpVerified = true;
+        status.smtp.warning = null;
       } catch (error) {
         status.smtpVerified = false;
         status.smtpError = error.message;

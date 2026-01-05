@@ -24,6 +24,7 @@
   "author": "Marketplace Team",
   "license": "MIT",
   "dependencies": {
+    "@sendgrid/mail": "^8.1.6",
     "bcryptjs": "^2.4.3",
     "browser-image-compression": "^2.0.2",
     "cloudinary": "^1.40.0",

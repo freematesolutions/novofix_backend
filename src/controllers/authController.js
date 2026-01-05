@@ -33,7 +33,20 @@ class AuthController {
       // Generar token de verificación de email
       const emailVerificationToken = crypto.randomBytes(32).toString('hex');
 
-      // Crear nuevo cliente en estado pendiente
+      // Verificar si está habilitado el modo demo (para presentaciones)
+      // En modo demo: NO verificamos automáticamente, pero mostramos el enlace en la UI
+      const demoMode = process.env.AUTO_VERIFY_EMAIL === 'true';
+      
+      // Debug log para desarrollo
+      console.log('[AuthController] registerClient:', {
+        demoMode,
+        AUTO_VERIFY_EMAIL: process.env.AUTO_VERIFY_EMAIL,
+        NODE_ENV: process.env.NODE_ENV,
+        EMAIL_MODE: process.env.EMAIL_MODE
+      });
+
+      // Crear nuevo cliente SIEMPRE en estado pendiente de verificación
+      // (tanto en modo real como en modo demo)
       const client = new Client({
         email,
         password,
@@ -44,23 +57,30 @@ class AuthController {
         },
         guestSessionId: guestSessionId || req.session?.sessionId,
         roles: ['client'],
-        isActive: false, // No activo hasta verificar email
-        emailVerified: false, // No verificado aún
+        isActive: false, // Siempre inactivo hasta verificar
+        emailVerified: false, // Siempre pendiente hasta verificar
         emailVerificationToken
       });
 
       await client.save();
 
-      // Enviar email de verificación
-      try {
-        const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verificar-email?token=${emailVerificationToken}`;
-        await notificationService.sendClientNotification({
-          clientId: client._id,
-          type: 'VERIFY_EMAIL',
-          data: { firstName: client.profile?.firstName, verifyUrl }
-        });
-      } catch (e) {
-        console.warn('Verification email failed:', e?.message);
+      // URL de verificación
+      const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verificar-email?token=${emailVerificationToken}`;
+
+      // En modo demo: NO enviamos email real, solo mostraremos el enlace en la UI
+      // En modo real: intentamos enviar el email
+      if (!demoMode) {
+        try {
+          await notificationService.sendClientNotification({
+            clientId: client._id,
+            type: 'VERIFY_EMAIL',
+            data: { firstName: client.profile?.firstName, verifyUrl }
+          });
+        } catch (e) {
+          console.warn('Verification email failed:', e?.message);
+        }
+      } else {
+        console.log(`[DEMO MODE] Cliente ${email} - Enlace de verificación disponible en UI`);
       }
 
       // Manejar merge de datos guest si existe sesión
@@ -83,14 +103,13 @@ class AuthController {
         console.warn('Client welcome notification failed:', e?.message);
       }
 
-      // En desarrollo con AUTO_VERIFY_EMAIL=true, incluir token para verificación inmediata
-      const isDev = process.env.NODE_ENV !== 'production';
-      const autoVerifyEnabled = process.env.AUTO_VERIFY_EMAIL === 'true';
-      const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verificar-email?token=${emailVerificationToken}`;
-
+      // Respuesta unificada: siempre pendiente de verificación
+      // La diferencia es que en modo demo incluimos la URL de verificación
       res.status(201).json({
         success: true,
-        message: 'Client registered successfully. Please verify your email.',
+        message: demoMode 
+          ? 'Registro exitoso. Usa el enlace de verificación para activar tu cuenta (modo demo).'
+          : 'Client registered successfully. Please verify your email.',
         data: {
           user: {
             id: client._id,
@@ -101,14 +120,14 @@ class AuthController {
             isActive: client.isActive,
             emailVerified: client.emailVerified
           },
-          // NO enviamos token aquí - solo indicador de verificación pendiente
           pendingVerification: true,
-          // En desarrollo: proporcionar URL de verificación directamente
-          ...(isDev && {
+          // En modo demo: incluir URL de verificación para mostrar en la UI
+          // En desarrollo: también incluir para facilitar testing
+          ...(demoMode && { verificationUrl: verifyUrl, demoMode: true }),
+          ...(process.env.NODE_ENV !== 'production' && !demoMode && {
             _dev: {
               verifyUrl,
-              hint: 'Usa esta URL para verificar el email en desarrollo',
-              autoVerify: autoVerifyEnabled
+              hint: 'Usa esta URL para verificar el email en desarrollo'
             }
           })
         }
@@ -194,7 +213,11 @@ class AuthController {
       // Generar token de verificación de email
       const emailVerificationToken = crypto.randomBytes(32).toString('hex');
 
-      // Crear proveedor en estado pendiente
+      // Verificar si está habilitado el modo demo (para presentaciones)
+      // En modo demo: NO verificamos automáticamente, pero mostramos el enlace en la UI
+      const demoMode = process.env.AUTO_VERIFY_EMAIL === 'true';
+
+      // Crear proveedor SIEMPRE en estado pendiente de verificación
       const provider = new Provider({
         email,
         password,
@@ -234,23 +257,30 @@ class AuthController {
           commissionRate: freePlan.features.commissionRate
         },
         roles: ['client', 'provider'],
-        isActive: false, // No activo hasta verificar email
-        emailVerified: false, // No verificado aún
+        isActive: false, // Siempre inactivo hasta verificar
+        emailVerified: false, // Siempre pendiente hasta verificar
         emailVerificationToken
       });
 
       await provider.save();
 
-      // Enviar email de verificación
-      try {
-        const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verificar-email?token=${emailVerificationToken}`;
-        await notificationService.sendProviderNotification({
-          providerId: provider._id,
-          type: 'VERIFY_EMAIL',
-          data: { businessName, verifyUrl }
-        });
-      } catch (e) {
-        console.warn('Verification email failed:', e?.message);
+      // URL de verificación
+      const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verificar-email?token=${emailVerificationToken}`;
+
+      // En modo demo: NO enviamos email real, solo mostraremos el enlace en la UI
+      // En modo real: intentamos enviar el email
+      if (!demoMode) {
+        try {
+          await notificationService.sendProviderNotification({
+            providerId: provider._id,
+            type: 'VERIFY_EMAIL',
+            data: { businessName, verifyUrl }
+          });
+        } catch (e) {
+          console.warn('Verification email failed:', e?.message);
+        }
+      } else {
+        console.log(`[DEMO MODE] Proveedor ${email} - Enlace de verificación disponible en UI`);
       }
 
       // Aplicar código de referido si aplica
@@ -287,14 +317,13 @@ class AuthController {
         emitter.emitCountersUpdateToUser(provider._id, { reason: 'provider_registered' });
       } catch {/* ignore */}
 
-      // En desarrollo con AUTO_VERIFY_EMAIL=true, incluir token para verificación inmediata
-      const isDev = process.env.NODE_ENV !== 'production';
-      const autoVerifyEnabled = process.env.AUTO_VERIFY_EMAIL === 'true';
-      const devVerifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verificar-email?token=${emailVerificationToken}`;
-
+      // Respuesta unificada: siempre pendiente de verificación
+      // La diferencia es que en modo demo incluimos la URL de verificación
       res.status(201).json({
         success: true,
-        message: 'Provider registered successfully. Please verify your email.',
+        message: demoMode 
+          ? 'Registro exitoso. Usa el enlace de verificación para activar tu cuenta (modo demo).'
+          : 'Provider registered successfully. Please verify your email.',
         data: {
           user: {
             id: provider._id,
@@ -306,14 +335,14 @@ class AuthController {
             isActive: provider.isActive,
             emailVerified: provider.emailVerified
           },
-          // NO enviamos token aquí - solo indicador de verificación pendiente
           pendingVerification: true,
-          // En desarrollo: proporcionar URL de verificación directamente
-          ...(isDev && {
+          // En modo demo: incluir URL de verificación para mostrar en la UI
+          // En desarrollo: también incluir para facilitar testing
+          ...(demoMode && { verificationUrl: verifyUrl, demoMode: true }),
+          ...(process.env.NODE_ENV !== 'production' && !demoMode && {
             _dev: {
-              verifyUrl: devVerifyUrl,
-              hint: 'Usa esta URL para verificar el email en desarrollo',
-              autoVerify: autoVerifyEnabled
+              verifyUrl,
+              hint: 'Usa esta URL para verificar el email en desarrollo'
             }
           })
         }

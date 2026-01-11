@@ -25,7 +25,7 @@ class GuestController {
       const select = {
         email: 1,
         'profile.firstName': 1,
-        'profile.profileImage': 1,
+        'profile.avatar': 1,
         'providerProfile.businessName': 1,
         'providerProfile.businessDescription': 1,
         'providerProfile.rating.average': 1,

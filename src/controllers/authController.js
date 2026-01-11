@@ -1046,11 +1046,14 @@ class AuthController {
       const updateData = req.body;
       let user;
       const r = String(req.user.role || '').toLowerCase();
+      // Obtener el usuario actual para mergear el profile
+      const currentUser = await User.findById(req.user._id);
+      const mergedProfile = { ...((currentUser && currentUser.profile) || {}), ...(updateData.profile || {}) };
       switch (r) {
         case 'provider': {
           const svcArea = updateData.serviceArea;
           const setOps = {
-            'profile': updateData.profile,
+            'profile': mergedProfile,
             'providerProfile.businessName': updateData.businessName,
             'providerProfile.description': updateData.description,
             'providerProfile.services': updateData.services,
@@ -1099,7 +1102,7 @@ class AuthController {
             req.user._id,
             { 
               $set: {
-                'profile': updateData.profile,
+                'profile': mergedProfile,
                 'contact': updateData.contact
               }
             },
@@ -1109,7 +1112,7 @@ class AuthController {
         default:
           user = await User.findByIdAndUpdate(
             req.user._id,
-            { $set: { 'profile': updateData.profile } },
+            { $set: { 'profile': mergedProfile } },
             { new: true, runValidators: true }
           );
       }

@@ -33,12 +33,9 @@ class RequestController {
       let clientId = null;
       let guestSessionId = null;
 
-      // Considerar a cualquier usuario autenticado como emisor de la solicitud
-      // (RBAC ya restringe a client/provider para esta ruta)
       if (req.user && req.user._id) {
         clientId = req.user._id;
       } else if (req.session) {
-        // Fallback para sesiones guest si en un futuro se permite crear como guest
         guestSessionId = req.session.sessionId;
       } else {
         return res.status(400).json({
@@ -50,14 +47,12 @@ class RequestController {
       // Calcular fecha de expiración
       const expiryDate = new Date();
       if (urgency === 'immediate') {
-        expiryDate.setHours(expiryDate.getHours() + 24); // 24 horas para urgencia inmediata
+        expiryDate.setHours(expiryDate.getHours() + 24);
       } else {
-        expiryDate.setDate(expiryDate.getDate() + 7); // 7 días para programado
+        expiryDate.setDate(expiryDate.getDate() + 7);
       }
 
-  let initialStatus = saveAsDraft ? 'draft' : 'published';
-
-      // Build GeoJSON point when possible
+      let initialStatus = saveAsDraft ? 'draft' : 'published';
       const point = (coordinates && Number.isFinite(coordinates.lng) && Number.isFinite(coordinates.lat))
         ? { type: 'Point', coordinates: [Number(coordinates.lng), Number(coordinates.lat)] }
         : undefined;
@@ -99,94 +94,92 @@ class RequestController {
 
       await serviceRequest.save();
 
-      // Publicación y notificación: si no hay elegibles por geo, mantener publicada si hay proveedores de la categoría
-      if (initialStatus === 'published' && serviceRequest.visibility === 'auto') {
-        try {
-          const eligible = await matchingService.findEligibleProviders(serviceRequest._id);
-          if (!eligible || (eligible.totalCount || 0) === 0) {
-            // Fallback: ¿existen proveedores activos de la categoría aunque estén fuera de radio?
-            const Provider = (await import('../models/User/Provider.js')).default;
-            const fallbackCount = await Provider.countDocuments({
-              'providerProfile.services.category': category,
-              'subscription.status': 'active',
-              isActive: true
-            });
-            if (fallbackCount > 0) {
-              // Mantener publicada para que aparezca en Empleos por categoría; no notificar por ahora
-              // (el proveedor podrá verla y enviar propuesta si su plan lo permite)
-            } else {
-              // Realmente no hay proveedores de esta categoría en la plataforma -> degradar a borrador
-              serviceRequest.status = 'draft';
-              initialStatus = 'draft';
-              await serviceRequest.save();
-            }
-          }
-        } catch (e) {
-          // Si matching falla, mantener publicada si hay proveedores de la categoría
-          try {
-            const Provider = (await import('../models/User/Provider.js')).default;
-            const fallbackCount = await Provider.countDocuments({
-              'providerProfile.services.category': category,
-              'subscription.status': 'active',
-              isActive: true
-            });
-            if (fallbackCount === 0) {
-              serviceRequest.status = 'draft';
-              initialStatus = 'draft';
-              await serviceRequest.save();
-            }
-          } catch {
-            serviceRequest.status = 'draft';
-            initialStatus = 'draft';
-            await serviceRequest.save();
-          }
-        }
-      }
-
-      // Vincular a sesión guest si aplica
-      if (guestSessionId && req.guest) {
-        const guestController = require('./guestController');
-        await guestController.linkServiceRequestToGuest({
-          body: { serviceRequestId: serviceRequest._id },
-          session: req.session
-        }, { json: () => {} });
-      }
-
-      // Buscar proveedores elegibles y notificar según visibilidad
-      let notificationResult;
-      if (serviceRequest.status === 'published' && serviceRequest.visibility === 'auto') {
-        // Si se especificaron proveedores específicos, notificar solo a ellos
-        if (targetProviders && Array.isArray(targetProviders) && targetProviders.length > 0) {
-          notificationResult = await matchingService.notifyProviders(
-            serviceRequest._id,
-            'directed',
-            targetProviders
-          );
-        } else {
-          // Notificar a todos los proveedores elegibles
-          notificationResult = await matchingService.notifyProviders(
-            serviceRequest._id,
-            'auto'
-          );
-        }
-      }
-
-      // Emit real-time counters update to client (new open request)
-      try { emitter.emitCountersUpdateToUser(clientId, { reason: 'request_created' }); } catch { /* ignore */ }
-      // Emit to notified providers (if any)
-      try {
-        const providers = (notificationResult?.results || []).map(r => r?.provider).filter(Boolean);
-        if (providers.length) emitter.emitCountersUpdateToUsers(providers, { reason: 'providers_notified' });
-      } catch { /* ignore */ }
-
+      // Responder rápido al cliente
       res.status(201).json({
         success: true,
         message: initialStatus === 'draft'
           ? 'Service request saved as draft (no providers available yet)'
           : 'Service request created successfully',
         data: {
-          request: serviceRequest,
-          notifications: notificationResult
+          request: serviceRequest
+        }
+      });
+
+      // Procesos secundarios en background (no bloquean la respuesta)
+      setImmediate(async () => {
+        try {
+          // Publicación y notificación: si no hay elegibles por geo, mantener publicada si hay proveedores de la categoría
+          if (initialStatus === 'published' && serviceRequest.visibility === 'auto') {
+            try {
+              const eligible = await matchingService.findEligibleProviders(serviceRequest._id);
+              if (!eligible || (eligible.totalCount || 0) === 0) {
+                const Provider = (await import('../models/User/Provider.js')).default;
+                const fallbackCount = await Provider.countDocuments({
+                  'providerProfile.services.category': category,
+                  'subscription.status': 'active',
+                  isActive: true
+                });
+                if (fallbackCount > 0) {
+                  // Mantener publicada
+                } else {
+                  serviceRequest.status = 'draft';
+                  await serviceRequest.save();
+                }
+              }
+            } catch (e) {
+              try {
+                const Provider = (await import('../models/User/Provider.js')).default;
+                const fallbackCount = await Provider.countDocuments({
+                  'providerProfile.services.category': category,
+                  'subscription.status': 'active',
+                  isActive: true
+                });
+                if (fallbackCount === 0) {
+                  serviceRequest.status = 'draft';
+                  await serviceRequest.save();
+                }
+              } catch {
+                serviceRequest.status = 'draft';
+                await serviceRequest.save();
+              }
+            }
+          }
+
+          // Vincular a sesión guest si aplica
+          if (guestSessionId && req.guest) {
+            const guestController = require('./guestController');
+            await guestController.linkServiceRequestToGuest({
+              body: { serviceRequestId: serviceRequest._id },
+              session: req.session
+            }, { json: () => {} });
+          }
+
+          // Buscar proveedores elegibles y notificar según visibilidad
+          let notificationResult;
+          if (serviceRequest.status === 'published' && serviceRequest.visibility === 'auto') {
+            if (targetProviders && Array.isArray(targetProviders) && targetProviders.length > 0) {
+              notificationResult = await matchingService.notifyProviders(
+                serviceRequest._id,
+                'directed',
+                targetProviders
+              );
+            } else {
+              notificationResult = await matchingService.notifyProviders(
+                serviceRequest._id,
+                'auto'
+              );
+            }
+          }
+
+          // Emit real-time counters update to client (new open request)
+          try { emitter.emitCountersUpdateToUser(clientId, { reason: 'request_created' }); } catch { /* ignore */ }
+          // Emit to notified providers (if any)
+          try {
+            const providers = (notificationResult?.results || []).map(r => r?.provider).filter(Boolean);
+            if (providers.length) emitter.emitCountersUpdateToUsers(providers, { reason: 'providers_notified' });
+          } catch { /* ignore */ }
+        } catch (error) {
+          console.error('RequestController background task error:', error);
         }
       });
     } catch (error) {

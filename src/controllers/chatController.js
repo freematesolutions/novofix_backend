@@ -1,8 +1,11 @@
 // controllers/chatController.js
+import mongoose from 'mongoose';
 import Chat from '../models/Communication/Chat.js';
 import Message from '../models/Communication/Message.js';
 import Booking from '../models/Service/Booking.js';
 import Proposal from '../models/Service/Proposal.js';
+import Client from '../models/User/Client.js';
+import Provider from '../models/User/Provider.js';
 import { getIO } from '../config/socket.js';
 import emitter from '../websocket/services/emitterService.js';
 
@@ -203,7 +206,16 @@ class ChatController {
       } catch { /* ignore */ }
 
       // Emitir evento de socket para mensaje en tiempo real
-      this.emitNewMessage(chat, message);
+      // Incluir datos del sender para notificaciones
+      const messageWithSender = {
+        ...message.toObject(),
+        sender: {
+          _id: req.user._id,
+          profile: req.user.profile,
+          providerProfile: req.user.providerProfile
+        }
+      };
+      this.emitNewMessage(chat, messageWithSender);
 
       res.status(201).json({
         success: true,
@@ -229,6 +241,15 @@ class ChatController {
 
       console.log(`📖 getChatMessages: chatId=${chatId}, userId=${req.user._id}, page=${page}, limit=${limit}`);
 
+      // Validar que chatId sea un ObjectId válido
+      if (!mongoose.Types.ObjectId.isValid(chatId)) {
+        console.log(`❌ Invalid chatId format: ${chatId}`);
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid chat ID format'
+        });
+      }
+
       const chat = await Chat.findOne({
         _id: chatId,
         $or: [
@@ -247,13 +268,32 @@ class ChatController {
 
       console.log(`✅ Chat found: participants.client=${chat.participants.client}, participants.provider=${chat.participants.provider}`);
 
+      // Only populate sender for non-system messages (senderModel !== 'System')
       const messages = await Message.find({ chat: chatId })
         .sort({ 'metadata.timestamp': -1 })
         .skip((page - 1) * limit)
         .limit(parseInt(limit))
-        .populate('sender', 'profile providerProfile');
+        .lean();
 
-      console.log(`📬 Found ${messages.length} messages for chat ${chatId}`);
+      // Manually populate sender for messages with valid senderModel to avoid refPath issues
+      const populatedMessages = await Promise.all(
+        messages.map(async (msg) => {
+          if (msg.sender && msg.senderModel && msg.senderModel !== 'System') {
+            try {
+              const Model = msg.senderModel === 'Provider' ? Provider : Client;
+              const senderData = await Model.findById(msg.sender)
+                .select('profile providerProfile')
+                .lean();
+              return { ...msg, sender: senderData };
+            } catch {
+              return msg;
+            }
+          }
+          return msg;
+        })
+      );
+
+      console.log(`📬 Found ${populatedMessages.length} messages for chat ${chatId}`);
 
       // Determinar rol del usuario para marcar mensajes
       const userRoles = Array.isArray(req.user?.roles) ? req.user.roles : [req.user?.role];
@@ -279,7 +319,7 @@ class ChatController {
       res.json({
         success: true,
         data: {
-          messages: messages.reverse(), // Ordenar del más viejo al más nuevo
+          messages: populatedMessages.reverse(), // Ordenar del más viejo al más nuevo
           chat,
           pagination: {
             page: parseInt(page),
@@ -400,34 +440,42 @@ class ChatController {
     try {
       const io = getIO();
 
-      const clientId = chat.participants.client?.toString() || chat.participants.client;
-      const providerId = chat.participants.provider?.toString() || chat.participants.provider;
-      const chatId = chat._id?.toString() || chat._id;
+      // Asegurar conversión a string para los IDs
+      const clientId = chat.participants?.client ? String(chat.participants.client._id || chat.participants.client) : null;
+      const providerId = chat.participants?.provider ? String(chat.participants.provider._id || chat.participants.provider) : null;
+      const chatId = String(chat._id);
+      const senderId = message.sender?._id ? String(message.sender._id) : String(message.sender);
 
-      console.log(`📤 Emitting new_message to users: client=${clientId}, provider=${providerId}, chatId=${chatId}`);
-
-      // Emitir a la sala del chat (para usuarios que tienen el chat abierto)
-      io.to(`chat_${chatId}`).emit('new_message', {
-        chatId: chat._id,
-        message
+      console.log(`📤 Emitting new_message:`, {
+        chatId,
+        clientId,
+        providerId,
+        senderId,
+        messageType: message.type,
+        rooms: [`chat_${chatId}`, `user_${clientId}`, `user_${providerId}`]
       });
 
+      const payload = {
+        chatId: chat._id,
+        message
+      };
+
+      // Emitir a la sala del chat (para usuarios que tienen el chat abierto)
+      io.to(`chat_${chatId}`).emit('new_message', payload);
+
       // También emitir a las salas de usuario (para notificaciones globales)
-      if (clientId) {
-        io.to(`user_${clientId}`).emit('new_message', {
-          chatId: chat._id,
-          message
-        });
+      // Pero NO emitir al sender, ya que él mismo envió el mensaje
+      if (clientId && clientId !== senderId) {
+        console.log(`📤 Emitting to client room: user_${clientId}`);
+        io.to(`user_${clientId}`).emit('new_message', payload);
       }
 
-      if (providerId) {
-        io.to(`user_${providerId}`).emit('new_message', {
-          chatId: chat._id,
-          message
-        });
+      if (providerId && providerId !== senderId) {
+        console.log(`📤 Emitting to provider room: user_${providerId}`);
+        io.to(`user_${providerId}`).emit('new_message', payload);
       }
 
-      console.log(`✅ Message emitted successfully to chat_${chatId}, user_${clientId}, user_${providerId}`);
+      console.log(`✅ Message emitted successfully`);
     } catch (error) {
       console.error('ChatController - emitNewMessage error:', error);
     }

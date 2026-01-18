@@ -58,6 +58,18 @@ router.post('/reset-password', authController.resetPassword);
 router.post('/become-provider', authenticateJWT, requireAuth, authController.becomeProvider);
 
 // Rutas protegidas de perfil
+// Endpoint para obtener el usuario autenticado (usado por el frontend para refrescar datos)
+router.get('/me', authenticateJWT, requireAuth, (req, res) => {
+  // Devuelve el usuario autenticado y sus perfiles
+  if (!req.user) {
+    return res.status(401).json({ success: false, message: 'No autenticado' });
+  }
+  res.json({
+    success: true,
+    data: { user: req.user }
+  });
+});
+
 router.get('/profile', authenticateJWT, requireAuth, authController.getProfile);
 router.put('/profile', authenticateJWT, requireAuth, authController.updateProfile);
 

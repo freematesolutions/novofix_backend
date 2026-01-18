@@ -392,6 +392,7 @@ class RequestController {
         sort: { createdAt: -1 },
         populate: [
           { path: 'client', select: 'profile contact' },
+          { path: 'proposals', populate: { path: 'provider', select: 'providerProfile' } },
           { path: 'acceptedProposal', populate: { path: 'provider', select: 'providerProfile' } },
           { path: 'selectedProviders', select: 'providerProfile' },
           { path: 'eligibleProviders.provider', select: 'providerProfile' }

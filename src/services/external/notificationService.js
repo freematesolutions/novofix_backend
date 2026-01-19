@@ -90,8 +90,8 @@ class NotificationService {
         return {
           ...baseData,
           subject: '¡Bienvenido a la plataforma! 🎉',
-          message: `Gracias por unirte, ${extra.businessName || baseData.recipient.name}. Configura tu perfil y empieza a recibir solicitudes.`,
-          actionUrl: `/provider/onboarding`,
+          message: `Gracias por unirte, ${extra.businessName || baseData.recipient.name}. Configura tu perfil de proveedor y empieza a recibir solicitudes.`,
+          actionUrl: `/perfil?section=provider-setup`,
           priority: 'medium'
         };
 
@@ -102,7 +102,7 @@ class NotificationService {
           emailTemplate: 'new_request',
           whatsappTemplate: 'new_service_request',
           message: `Tienes una nueva solicitud de ${serviceRequest.basicInfo.category} en ${serviceRequest.location.address}`,
-          actionUrl: `/provider/requests/${serviceRequest._id}`,
+          actionUrl: `/empleos/${serviceRequest._id}`,
           priority: 'high'
         };
 
@@ -113,7 +113,7 @@ class NotificationService {
           emailTemplate: 'proposal_accepted',
           whatsappTemplate: 'proposal_accepted',
           message: `El cliente ha aceptado tu propuesta para ${serviceRequest.basicInfo.title}`,
-          actionUrl: `/provider/bookings/${serviceRequest._id}`,
+          actionUrl: `/reservas`,
           priority: 'high'
         };
 
@@ -300,9 +300,9 @@ class NotificationService {
       case 'WELCOME_CLIENT':
         return {
           ...base,
-          subject: '¡Bienvenido! 🎉',
-          message: `Gracias por registrarte, ${base.recipient.name}. Crea tu primera solicitud cuando quieras.`,
-          actionUrl: '/mis-solicitudes/nueva',
+          subject: '¡Bienvenido a la plataforma! 🎉',
+          message: `Gracias por unirte, ${base.recipient.name}. Configura tu perfil y comienza a explorar servicios.`,
+          actionUrl: '/perfil?section=personal',
           priority: 'medium'
         };
       case 'BOOKING_CONFIRMED':
@@ -321,6 +321,16 @@ class NotificationService {
           actionUrl: extra.verifyUrl || '/verificar-email',
           priority: 'medium',
           emailTemplate: 'verify_email'
+        };
+      case 'NEW_PROPOSAL':
+        return {
+          ...base,
+          subject: '¡Nueva propuesta recibida! 💼',
+          message: extra?.providerName 
+            ? `${extra.providerName} te ha enviado una propuesta por $${extra.amount || 0} para tu solicitud.`
+            : 'Has recibido una nueva propuesta de un profesional.',
+          actionUrl: extra?.requestId ? `/mis-solicitudes/${extra.requestId}/propuestas` : '/mis-solicitudes',
+          priority: 'high'
         };
       default:
         return {
@@ -366,9 +376,9 @@ class NotificationService {
       case 'WELCOME_ADMIN':
         return {
           ...base,
-          subject: 'Bienvenido al panel de administración',
-          message: 'Revisa el estado del sistema y configura planes y moderación.',
-          actionUrl: '/admin',
+          subject: '¡Bienvenido al panel de administración! 🎉',
+          message: 'Gracias por unirte al equipo. Revisa el estado del sistema y configura planes y moderación.',
+          actionUrl: '/perfil?section=personal',
           priority: 'medium'
         };
       default:

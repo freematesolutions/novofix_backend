@@ -22,7 +22,7 @@ const messageSchema = new mongoose.Schema({
     attachments: [{
       type: {
         type: String,
-        enum: ['image', 'document', 'audio', 'location']
+        enum: ['image', 'video', 'document', 'audio', 'location']
       },
       url: String,
       cloudinaryId: String,
@@ -32,9 +32,34 @@ const messageSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['text', 'image', 'document', 'system', 'location'],
+    enum: ['text', 'image', 'video', 'document', 'system', 'location'],
     default: 'text'
   },
+  // Respuesta a otro mensaje (reply)
+  replyTo: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Message',
+    default: null
+  },
+  // Reacciones al mensaje
+  reactions: [{
+    emoji: {
+      type: String,
+      required: true
+    },
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      refPath: 'reactions.userModel'
+    },
+    userModel: {
+      type: String,
+      enum: ['Client', 'Provider']
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
   status: {
     type: String,
     enum: ['sent', 'delivered', 'read'],

@@ -501,8 +501,9 @@ class UploadController {
   }
 
   /**
-   * Subir archivo para chat (imágenes y documentos)
-   * Límite: 5MB, tipos permitidos: imágenes, PDF, documentos de texto
+   * Subir archivo para chat (imágenes, videos y documentos)
+   * Límites: imágenes 10MB, videos 100MB, documentos 5MB
+   * Tipos permitidos: imágenes, videos, PDF, documentos de texto
    */
   async uploadChatFile(req, res) {
     try {
@@ -516,32 +517,60 @@ class UploadController {
       const file = req.file;
       const fileSizeMB = (file.size / 1024 / 1024).toFixed(2);
       const isImage = file.mimetype.startsWith('image/');
+      const isVideo = file.mimetype.startsWith('video/');
+      const isLargeFile = file.size > 10 * 1024 * 1024; // > 10MB
       
-      console.log(`📤 Uploading chat file: ${file.originalname} (${isImage ? 'image' : 'document'}, ${fileSizeMB}MB)`);
+      // Determinar tipo de archivo para respuesta
+      let fileType = 'document';
+      if (isImage) fileType = 'image';
+      if (isVideo) fileType = 'video';
+      
+      console.log(`📤 Uploading chat file: ${file.originalname} (${fileType}, ${fileSizeMB}MB)`);
 
-      // Subir a Cloudinary con carpeta específica para chat
+      // Subir a Cloudinary con configuración optimizada
       const result = await new Promise((resolve, reject) => {
         const uploadOptions = {
           folder: 'marketplace-services/chat',
-          resource_type: isImage ? 'image' : 'raw',
           use_filename: true,
-          unique_filename: true,
-          timeout: 60000
+          unique_filename: true
         };
 
-        // Optimizaciones para imágenes de chat
+        // Configuración específica por tipo de archivo
         if (isImage) {
+          uploadOptions.resource_type = 'image';
           uploadOptions.quality = 'auto:good';
           uploadOptions.fetch_format = 'auto';
           uploadOptions.transformation = [
-            { width: 1200, height: 1200, crop: 'limit' } // Limitar tamaño máximo
+            { width: 1920, height: 1920, crop: 'limit' } // Limitar tamaño máximo
           ];
+          uploadOptions.timeout = 120000; // 2 minutos
+        } else if (isVideo) {
+          uploadOptions.resource_type = 'video';
+          uploadOptions.timeout = 600000; // 10 minutos para videos
+          uploadOptions.chunk_size = 20000000; // 20MB chunks
+          
+          // Optimizaciones para videos grandes
+          if (isLargeFile) {
+            uploadOptions.eager_async = true; // Procesamiento asíncrono
+            console.log(`📦 Using async upload for large video (${fileSizeMB}MB)`);
+          }
+          
+          // Calidad adaptativa según tamaño
+          if (file.size > 50 * 1024 * 1024) {
+            uploadOptions.quality = 'auto:eco'; // Compresión económica para videos muy grandes
+          } else {
+            uploadOptions.quality = 'auto:good';
+          }
+        } else {
+          uploadOptions.resource_type = 'raw';
+          uploadOptions.timeout = 60000; // 1 minuto para documentos
         }
 
         const uploadStream = cloudinary.uploader.upload_stream(
           uploadOptions,
           (error, result) => {
             if (error) {
+              console.error('❌ Cloudinary upload error:', error);
               reject(error);
             } else {
               resolve(result);
@@ -560,10 +589,12 @@ class UploadController {
         data: {
           url: result.secure_url,
           cloudinaryId: result.public_id,
-          type: isImage ? 'image' : 'document',
+          type: fileType,
           name: file.originalname,
           size: file.size,
-          mimeType: file.mimetype
+          mimeType: file.mimetype,
+          format: result.format,
+          duration: result.duration // Para videos
         }
       });
     } catch (error) {

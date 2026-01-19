@@ -80,16 +80,20 @@ router.post('/portfolio',
   uploadController.uploadPortfolio
 );
 
-// Upload para chat (imágenes y documentos)
+// Upload para chat (imágenes, videos y documentos)
 const chatUpload = multer({ 
   storage: storage,
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB máximo por archivo para chat
+    fileSize: 100 * 1024 * 1024, // 100MB máximo para soportar videos
     files: 5 // Máximo 5 archivos
   },
   fileFilter: function (req, file, cb) {
     const allowedMimes = [
+      // Imágenes
       'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
+      // Videos
+      'video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo', 'video/x-ms-wmv', 'video/mpeg',
+      // Documentos
       'application/pdf',
       'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       'text/plain'
@@ -98,7 +102,7 @@ const chatUpload = multer({
     if (allowedMimes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error(`Invalid file type for chat: ${file.mimetype}.`));
+      cb(new Error(`Tipo de archivo no permitido para chat: ${file.mimetype}. Tipos permitidos: imágenes, videos, PDF y documentos.`));
     }
   }
 });

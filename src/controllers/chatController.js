@@ -145,7 +145,7 @@ class ChatController {
   async sendMessage(req, res) {
     try {
       const { chatId } = req.params;
-      const { text, attachments, type = 'text' } = req.body;
+      const { text, attachments, type = 'text', replyTo } = req.body;
 
       const chat = await Chat.findOne({
         _id: chatId,
@@ -162,14 +162,36 @@ class ChatController {
         });
       }
 
-      // Determinar modelo del sender basado en roles múltiples
-      // Para usuarios duales, priorizar el rol con el que están actuando
-      const userRoles = Array.isArray(req.user?.roles) ? req.user.roles : [req.user?.role];
-      // Si solo tiene un rol, usarlo; si tiene ambos, el contexto del chat determina
-      const isClient = userRoles.includes('client');
-      const isProvider = userRoles.includes('provider');
-      // Por defecto, si es cliente o tiene ambos, usar Client (el proveedor responde desde Provider)
-      const senderModel = (isProvider && !isClient) ? 'Provider' : 'Client';
+      // Determinar senderModel basado en la posición del usuario en ESTE chat específico
+      // No en sus roles globales, para soportar correctamente usuarios duales
+      const userIdStr = req.user._id.toString();
+      const chatClientId = chat.participants.client?.toString();
+      const chatProviderId = chat.participants.provider?.toString();
+      
+      const senderIsClient = userIdStr === chatClientId;
+      const senderIsProvider = userIdStr === chatProviderId;
+      
+      let senderModel;
+      if (senderIsClient) {
+        senderModel = 'Client';
+      } else if (senderIsProvider) {
+        senderModel = 'Provider';
+      } else {
+        // Fallback: no debería ocurrir
+        const userRoles = Array.isArray(req.user?.roles) ? req.user.roles : [req.user?.role];
+        const isProvider = userRoles.includes('provider');
+        const isClient = userRoles.includes('client');
+        senderModel = (isProvider && !isClient) ? 'Provider' : 'Client';
+      }
+
+      // Validar replyTo si se proporciona
+      let validReplyTo = null;
+      if (replyTo) {
+        const replyMessage = await Message.findOne({ _id: replyTo, chat: chatId });
+        if (replyMessage) {
+          validReplyTo = replyTo;
+        }
+      }
 
       const message = new Message({
         chat: chatId,
@@ -180,18 +202,24 @@ class ChatController {
           attachments: attachments || []
         },
         type,
-        status: 'sent'
+        status: 'sent',
+        replyTo: validReplyTo
       });
 
       await message.save();
-      console.log(`💾 Message saved: id=${message._id}, chat=${chatId}, sender=${req.user._id}, text="${text?.substring(0, 50)}..."`);
+      console.log(`💾 Message saved: id=${message._id}, chat=${chatId}, sender=${req.user._id}, senderModel=${senderModel}, text="${text?.substring(0, 50)}...", replyTo=${validReplyTo || 'none'}`);
+
+      // Si hay replyTo, popular para incluir en la respuesta
+      if (validReplyTo) {
+        await message.populate('replyTo', 'content sender');
+      }
 
       // Actualizar último mensaje del chat
       chat.lastMessage = message._id;
       chat.metadata.lastActivity = new Date();
 
       // Incrementar contador de no leídos para el otro participante
-      if (senderModel === 'Client') {
+      if (senderIsClient) {
         chat.unreadCount.provider += 1;
       } else {
         chat.unreadCount.client += 1;
@@ -201,7 +229,7 @@ class ChatController {
 
       // Emitir actualización de contadores al receptor (tendrá más no leídos)
       try {
-        const recipientId = senderModel === 'Client' ? chat.participants.provider : chat.participants.client;
+        const recipientId = senderIsClient ? chatProviderId : chatClientId;
         if (recipientId) emitter.emitCountersUpdateToUserDebounced(recipientId, { reasons: ['chat_unread_inc'], chatId });
       } catch { /* ignore */ }
 
@@ -210,9 +238,11 @@ class ChatController {
       const messageWithSender = {
         ...message.toObject(),
         sender: {
-          _id: req.user._id,
+          _id: String(req.user._id),
+          id: String(req.user._id),
           profile: req.user.profile,
-          providerProfile: req.user.providerProfile
+          providerProfile: req.user.providerProfile,
+          email: req.user.email
         }
       };
       this.emitNewMessage(chat, messageWithSender);
@@ -434,9 +464,105 @@ class ChatController {
   }
 
   /**
+   * Agregar o quitar reacción de un mensaje
+   */
+  async toggleMessageReaction(req, res) {
+    try {
+      const { chatId, messageId } = req.params;
+      const { emoji } = req.body;
+
+      if (!emoji) {
+        return res.status(400).json({
+          success: false,
+          message: 'Emoji is required'
+        });
+      }
+
+      // Verificar acceso al chat
+      const chat = await Chat.findOne({
+        _id: chatId,
+        $or: [
+          { 'participants.client': req.user._id },
+          { 'participants.provider': req.user._id }
+        ]
+      });
+
+      if (!chat) {
+        return res.status(404).json({
+          success: false,
+          message: 'Chat not found or access denied'
+        });
+      }
+
+      // Buscar el mensaje
+      const message = await Message.findOne({
+        _id: messageId,
+        chat: chatId
+      });
+
+      if (!message) {
+        return res.status(404).json({
+          success: false,
+          message: 'Message not found'
+        });
+      }
+
+      // Determinar userModel basado en la posición en el chat
+      const userIdStr = req.user._id.toString();
+      const chatClientId = chat.participants.client?.toString();
+      const userModel = userIdStr === chatClientId ? 'Client' : 'Provider';
+
+      // Buscar si ya existe una reacción del usuario con ese emoji
+      const existingReactionIndex = message.reactions.findIndex(
+        r => r.user.toString() === userIdStr && r.emoji === emoji
+      );
+
+      if (existingReactionIndex >= 0) {
+        // Quitar reacción
+        message.reactions.splice(existingReactionIndex, 1);
+      } else {
+        // Agregar reacción
+        message.reactions.push({
+          emoji,
+          user: req.user._id,
+          userModel,
+          createdAt: new Date()
+        });
+      }
+
+      await message.save();
+
+      // Emitir actualización vía socket
+      try {
+        const io = getIO();
+        const chatRoomName = `chat_${chatId}`;
+        io.to(chatRoomName).emit('message_reaction', {
+          chatId,
+          messageId,
+          reactions: message.reactions
+        });
+      } catch (err) {
+        console.error('Error emitting reaction update:', err);
+      }
+
+      res.json({
+        success: true,
+        message: existingReactionIndex >= 0 ? 'Reaction removed' : 'Reaction added',
+        data: { reactions: message.reactions }
+      });
+    } catch (error) {
+      console.error('ChatController - toggleMessageReaction error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to toggle reaction'
+      });
+    }
+  }
+
+  /**
    * Emitir nuevo mensaje via Socket.io
    */
-  emitNewMessage(chat, message) {
+  async emitNewMessage(chat, message) {
     try {
       const io = getIO();
 
@@ -451,26 +577,47 @@ class ChatController {
         clientId,
         providerId,
         senderId,
-        messageType: message.type,
-        rooms: [`chat_${chatId}`, `user_${clientId}`, `user_${providerId}`]
+        messageType: message.type
       });
 
       const payload = {
-        chatId: chat._id,
-        message
+        chatId: String(chat._id),
+        chat: String(chat._id),
+        message: {
+          ...message,
+          _id: String(message._id),
+          chatId: String(chat._id),
+          chat: String(chat._id),
+          createdAt: message.createdAt || new Date().toISOString()
+        }
       };
 
-      // Emitir a la sala del chat (para usuarios que tienen el chat abierto)
-      io.to(`chat_${chatId}`).emit('new_message', payload);
+      // Obtener usuarios en la sala del chat para evitar duplicados
+      const chatRoomName = `chat_${chatId}`;
+      const socketsInChatRoom = await io.in(chatRoomName).fetchSockets();
+      const usersInChatRoom = new Set(socketsInChatRoom.map(s => s.userId));
+
+      // Emitir a la sala del chat EXCEPTO al remitente (para usuarios que tienen el chat abierto)
+      // Encontrar el socket del remitente para excluirlo
+      const senderSocket = socketsInChatRoom.find(s => s.userId === senderId);
+      if (senderSocket) {
+        // Emitir a la sala excluyendo al remitente
+        senderSocket.to(chatRoomName).emit('new_message', payload);
+        console.log(`📤 Emitted new_message to room ${chatRoomName} (excluding sender ${senderId})`);
+      } else {
+        // El remitente no está en la sala, emitir a todos
+        io.to(chatRoomName).emit('new_message', payload);
+        console.log(`📤 Emitted new_message to room ${chatRoomName} (sender not in room)`);
+      }
 
       // También emitir a las salas de usuario (para notificaciones globales)
-      // Pero NO emitir al sender, ya que él mismo envió el mensaje
-      if (clientId && clientId !== senderId) {
+      // Pero NO emitir al sender NI a usuarios que ya están en la sala del chat
+      if (clientId && clientId !== senderId && !usersInChatRoom.has(clientId)) {
         console.log(`📤 Emitting to client room: user_${clientId}`);
         io.to(`user_${clientId}`).emit('new_message', payload);
       }
 
-      if (providerId && providerId !== senderId) {
+      if (providerId && providerId !== senderId && !usersInChatRoom.has(providerId)) {
         console.log(`📤 Emitting to provider room: user_${providerId}`);
         io.to(`user_${providerId}`).emit('new_message', payload);
       }

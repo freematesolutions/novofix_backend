@@ -7,14 +7,15 @@ export const messageSchema = Joi.object({
     Joi.object({
       text: Joi.string(),
       attachments: Joi.array().items(Joi.object({
-        type: Joi.string().valid('image', 'file', 'audio').required(),
+        type: Joi.string().valid('image', 'file', 'audio', 'video').required(),
         url: Joi.string().required(),
         metadata: Joi.object().optional()
       }))
     })
   ).required(),
-  type: Joi.string().valid('text', 'image', 'file', 'system').default('text'),
-  localId: Joi.string().optional() // Client-side tracking ID for optimistic updates
+  type: Joi.string().valid('text', 'image', 'file', 'video', 'system').default('text'),
+  localId: Joi.string().optional(), // Client-side tracking ID for optimistic updates
+  replyTo: Joi.string().allow(null).optional() // ID del mensaje al que se responde (puede ser null)
 });
 
 export const typingSchema = Joi.object({

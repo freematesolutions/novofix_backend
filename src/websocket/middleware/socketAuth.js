@@ -26,10 +26,14 @@ export const socketAuth = async (socket, next) => {
     socket.userId = user._id.toString();
     socket.userRole = user.role;
     socket.userData = {
+      _id: user._id,
       id: user._id,
       email: user.email,
       role: user.role,
-      name: user.profile?.firstName || user.providerProfile?.businessName
+      roles: user.roles || [user.role],
+      name: user.profile?.firstName || user.providerProfile?.businessName,
+      profile: user.profile,
+      providerProfile: user.providerProfile
     };
 
     // Registrar el estado del usuario durante la autenticación del socket

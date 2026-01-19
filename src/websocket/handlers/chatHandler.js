@@ -98,15 +98,47 @@ export class ChatHandler {
 
       console.log(`✅ Message validated:`, value);
 
-      const { chatId, content, type } = value;
+      const { chatId, content, type, replyTo } = value;
       
-      // Determinar senderModel correctamente
-      const userRoles = Array.isArray(socket.userData?.roles) ? socket.userData.roles : [socket.userRole];
-      const isProvider = userRoles.includes('provider');
-      const isClient = userRoles.includes('client');
-      const senderModel = (isProvider && !isClient) ? 'Provider' : 'Client';
+      // Obtener el chat primero para determinar el rol del sender en este contexto
+      const chat = await Chat.findById(chatId).select('participants unreadCount type relatedTo');
+      if (!chat) {
+        throw new Error('Chat not found');
+      }
       
-      console.log(`📝 Creating message: chatId=${chatId}, sender=${socket.userId}, senderModel=${senderModel}`);
+      // Determinar senderModel basado en la posición del usuario en el chat
+      // No en sus roles globales, sino en si es el cliente o proveedor DE ESTE CHAT
+      const senderIdStr = socket.userId;
+      const chatClientId = chat.participants.client?.toString();
+      const chatProviderId = chat.participants.provider?.toString();
+      
+      const senderIsClient = senderIdStr === chatClientId;
+      const senderIsProvider = senderIdStr === chatProviderId;
+      
+      // Determinar senderModel por su posición en el chat
+      let senderModel;
+      if (senderIsClient) {
+        senderModel = 'Client';
+      } else if (senderIsProvider) {
+        senderModel = 'Provider';
+      } else {
+        // Fallback: no debería ocurrir, pero usar lógica anterior por seguridad
+        const userRoles = Array.isArray(socket.userData?.roles) ? socket.userData.roles : [socket.userRole];
+        const isProvider = userRoles.includes('provider');
+        const isClient = userRoles.includes('client');
+        senderModel = (isProvider && !isClient) ? 'Provider' : 'Client';
+      }
+
+      // Validar replyTo si se proporciona
+      let validReplyTo = null;
+      if (replyTo) {
+        const replyMessage = await Message.findOne({ _id: replyTo, chat: chatId });
+        if (replyMessage) {
+          validReplyTo = replyTo;
+        }
+      }
+      
+      console.log(`📝 Creating message: chatId=${chatId}, sender=${socket.userId}, senderModel=${senderModel}, senderIsClient=${senderIsClient}, senderIsProvider=${senderIsProvider}, replyTo=${validReplyTo || 'none'}`);
       
       // Crear mensaje en la base de datos
       const message = new Message({
@@ -115,23 +147,23 @@ export class ChatHandler {
         senderModel: senderModel,
         content,
         type,
-        status: 'sent'
+        status: 'sent',
+        replyTo: validReplyTo
       });
 
       await message.save();
+      
+      // Populate replyTo para incluir en la respuesta
+      if (validReplyTo) {
+        await message.populate('replyTo', 'content sender');
+      }
+      
       console.log(`💾 Message saved successfully: id=${message._id}`);
 
-      // Obtener info del chat para saber quién es el receptor
-      const chat = await Chat.findById(chatId).select('participants unreadCount type relatedTo');
-      if (!chat) {
-        throw new Error('Chat not found');
-      }
-
-      // Determinar el receptor
-      const senderIsClient = senderModel === 'Client';
+      // Determinar el receptor (el otro participante)
       const recipientId = senderIsClient 
-        ? chat.participants.provider?.toString() 
-        : chat.participants.client?.toString();
+        ? chatProviderId 
+        : chatClientId;
 
       // Incrementar no leídos para el otro participante
       try {
@@ -148,15 +180,22 @@ export class ChatHandler {
 
       // Preparar payload del mensaje
       const messagePayload = {
-        _id: message._id,
-        chat: chatId,
-        sender: socket.userData,
+        _id: String(message._id),
+        chatId: String(chatId),
+        chat: String(chatId),
+        sender: {
+          ...socket.userData,
+          _id: String(socket.userData._id || socket.userData.id),
+          id: String(socket.userData._id || socket.userData.id)
+        },
         senderModel,
         content,
         type,
+        createdAt: new Date().toISOString(),
         timestamp: new Date(),
         status: 'delivered',
-        localId: value.localId
+        localId: value.localId,
+        replyTo: validReplyTo
       };
 
       // Emitir a todos en la sala del chat (excepto al remitente)
@@ -169,23 +208,38 @@ export class ChatHandler {
       console.log(`📤 Emitted ${EVENTS.CHAT.MESSAGE.RECEIVED} to room ${roomName}`);
 
       // TAMBIÉN emitir al usuario receptor directamente (para notificaciones cuando no tiene el chat abierto)
+      // PERO solo si el receptor NO está en la sala del chat (para evitar duplicados)
       if (recipientId) {
-        const userRoom = ROOMS.USER(recipientId);
-        console.log(`📡 Also emitting to user room ${userRoom} for notifications`);
-        this.io.to(userRoom).emit(EVENTS.CHAT.MESSAGE.RECEIVED, {
-          ...messagePayload,
-          chatType: chat.type,
-          relatedTo: chat.relatedTo
-        });
+        // Verificar si el receptor está en la sala del chat
+        const recipientInChatRoom = socketsInRoom.some(s => s.userId === recipientId);
+        
+        if (!recipientInChatRoom) {
+          const userRoom = ROOMS.USER(recipientId);
+          console.log(`📡 Recipient not in chat room, emitting to user room ${userRoom} for notifications`);
+          this.io.to(userRoom).emit(EVENTS.CHAT.MESSAGE.RECEIVED, {
+            ...messagePayload,
+            chatType: chat.type,
+            relatedTo: chat.relatedTo
+          });
+        } else {
+          console.log(`📡 Recipient ${recipientId} already in chat room, skipping user room emission to avoid duplicate`);
+        }
       }
 
       // Confirmar al remitente con el ID real del mensaje
       socket.emit(EVENTS.CHAT.MESSAGE.SENT, {
         _id: message._id,
+        chatId: chatId,
         chat: chatId,
         localId: value.localId,
+        createdAt: new Date().toISOString(),
         timestamp: new Date(),
-        status: 'sent'
+        status: 'sent',
+        content,
+        type,
+        sender: socket.userData,
+        senderModel,
+        replyTo: validReplyTo
       });
 
       console.log(`Message sent in chat ${chatId} by ${socket.userData.email}`);

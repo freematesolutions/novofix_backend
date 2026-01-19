@@ -24,6 +24,9 @@ router.post('/proposal/:proposalId', chatController.createOrGetProposalChat.bind
 router.get('/:chatId/messages', chatController.getChatMessages.bind(chatController));
 router.post('/:chatId/messages', chatController.sendMessage.bind(chatController));
 
+// Reacciones a mensajes
+router.patch('/:chatId/messages/:messageId/reactions', chatController.toggleMessageReaction.bind(chatController));
+
 // Crear chat para booking (usado internamente)
 router.post('/booking/:bookingId', async (req, res) => {
   try {

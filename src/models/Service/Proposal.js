@@ -57,6 +57,20 @@ const proposalSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  // Traducciones automáticas del mensaje
+  translations: {
+    es: {
+      message: String
+    },
+    en: {
+      message: String
+    }
+  },
+  originalLanguage: {
+    type: String,
+    enum: ['es', 'en'],
+    default: 'es'
+  },
   status: {
     type: String,
     enum: ['draft', 'sent', 'viewed', 'accepted', 'rejected', 'expired', 'cancelled'],

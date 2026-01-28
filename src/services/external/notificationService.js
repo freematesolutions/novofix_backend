@@ -72,7 +72,8 @@ class NotificationService {
       recipient: {
         id: provider._id,
         email: provider.email,
-        name: provider.profile?.firstName || 'Proveedor'
+        name: provider.profile?.firstName || 'Proveedor',
+        businessName: extra.businessName || provider.profile?.firstName || 'Proveedor'
       },
       serviceRequest: serviceRequest ? {
         id: serviceRequest._id,
@@ -92,7 +93,8 @@ class NotificationService {
           subject: '¡Bienvenido a la plataforma! 🎉',
           message: `Gracias por unirte, ${extra.businessName || baseData.recipient.name}. Configura tu perfil de proveedor y empieza a recibir solicitudes.`,
           actionUrl: `/perfil?section=provider-setup`,
-          priority: 'medium'
+          priority: 'medium',
+          extraData: { name: extra.businessName || baseData.recipient.name, businessName: extra.businessName || '' }
         };
 
       case 'NEW_REQUEST':
@@ -103,7 +105,12 @@ class NotificationService {
           whatsappTemplate: 'new_service_request',
           message: `Tienes una nueva solicitud de ${serviceRequest.basicInfo.category} en ${serviceRequest.location.address}`,
           actionUrl: `/empleos/${serviceRequest._id}`,
-          priority: 'high'
+          priority: 'high',
+          extraData: { 
+            category: serviceRequest.basicInfo.category, 
+            location: serviceRequest.location.address,
+            title: serviceRequest.basicInfo.title
+          }
         };
 
       case 'PROPOSAL_ACCEPTED':
@@ -114,7 +121,8 @@ class NotificationService {
           whatsappTemplate: 'proposal_accepted',
           message: `El cliente ha aceptado tu propuesta para ${serviceRequest.basicInfo.title}`,
           actionUrl: `/reservas`,
-          priority: 'high'
+          priority: 'high',
+          extraData: { title: serviceRequest.basicInfo.title, serviceTitle: serviceRequest.basicInfo.title }
         };
 
       case 'VERIFY_EMAIL':
@@ -202,16 +210,32 @@ class NotificationService {
 
   async createInAppNotification(userId, userType, notificationData) {
     try {
+      // Construir datos para traducción dinámica en el frontend
+      const translationData = {
+        serviceRequestId: notificationData.serviceRequest?.id,
+        actionUrl: notificationData.actionUrl,
+        // Datos para interpolación de traducciones
+        name: notificationData.recipient?.name || '',
+        businessName: notificationData.recipient?.businessName || notificationData.recipient?.name || '',
+        category: notificationData.serviceRequest?.category || '',
+        location: notificationData.serviceRequest?.location || '',
+        title: notificationData.serviceRequest?.title || '',
+        serviceTitle: notificationData.serviceRequest?.title || '',
+        // Datos adicionales que pueden venir de extra
+        providerName: notificationData.providerName || '',
+        clientName: notificationData.clientName || '',
+        amount: notificationData.amount || '',
+        // Preservar cualquier dato adicional que venga
+        ...(notificationData.extraData || {})
+      };
+
       const notification = new Notification({
         user: userId,
         userType,
         type: notificationData.type,
         title: notificationData.subject,
         message: notificationData.message,
-        data: {
-          serviceRequestId: notificationData.serviceRequest?.id,
-          actionUrl: notificationData.actionUrl
-        },
+        data: translationData,
         priority: notificationData.priority,
         read: false
       });
@@ -220,7 +244,7 @@ class NotificationService {
       notificationData.channels.push('in_app');
 
       // Emitir evento Socket.io para notificación en tiempo real
-  this.emitRealTimeNotification(userId, notification);
+      this.emitRealTimeNotification(userId, notification);
 
       return { channel: 'in_app', status: 'created' };
     } catch (error) {
@@ -236,6 +260,7 @@ class NotificationService {
       type: notification.type,
       title: notification.title,
       message: notification.message,
+      data: notification.data,
       timestamp: notification.createdAt
     });
   }
@@ -303,7 +328,8 @@ class NotificationService {
           subject: '¡Bienvenido a la plataforma! 🎉',
           message: `Gracias por unirte, ${base.recipient.name}. Configura tu perfil y comienza a explorar servicios.`,
           actionUrl: '/perfil?section=personal',
-          priority: 'medium'
+          priority: 'medium',
+          extraData: { name: base.recipient.name }
         };
       case 'BOOKING_CONFIRMED':
         return {
@@ -311,7 +337,8 @@ class NotificationService {
           subject: '¡Tu reserva está confirmada!',
           message: extra?.message || 'Hemos confirmado tu reserva con el profesional.',
           actionUrl: '/reservas',
-          priority: 'high'
+          priority: 'high',
+          extraData: { providerName: extra?.providerName || '' }
         };
       case 'VERIFY_EMAIL':
         return {
@@ -330,7 +357,14 @@ class NotificationService {
             ? `${extra.providerName} te ha enviado una propuesta por $${extra.amount || 0} para tu solicitud.`
             : 'Has recibido una nueva propuesta de un profesional.',
           actionUrl: extra?.requestId ? `/mis-solicitudes/${extra.requestId}/propuestas` : '/mis-solicitudes',
-          priority: 'high'
+          priority: 'high',
+          providerName: extra?.providerName || '',
+          amount: extra?.amount || '',
+          extraData: { 
+            providerName: extra?.providerName || '', 
+            amount: extra?.amount || '',
+            requestId: extra?.requestId || ''
+          }
         };
       default:
         return {
@@ -338,7 +372,8 @@ class NotificationService {
           subject: extra?.subject || 'Notificación',
           message: extra?.message || 'Tienes una nueva notificación',
           actionUrl: extra?.actionUrl || '/notificaciones',
-          priority: extra?.priority || 'medium'
+          priority: extra?.priority || 'medium',
+          extraData: extra
         };
     }
   }

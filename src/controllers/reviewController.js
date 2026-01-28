@@ -3,6 +3,7 @@ import Review from '../models/Service/Review.js';
 import Booking from '../models/Service/Booking.js';
 import Provider from '../models/User/Provider.js';
 import scoringService from '../services/internal/scoringService.js';
+import translationService from '../services/external/translationService.js';
 
 class ReviewController {
   sanitizeText(text, { max = 1000 } = {}) {
@@ -73,6 +74,22 @@ class ReviewController {
         },
         status: 'active'
       });
+
+      // Generar traducciones del título y comentario ANTES de guardar
+      try {
+        const textToTranslate = { title: title || '', comment };
+        const originalLang = translationService.detectLanguage(comment || title);
+        const translations = await translationService.generateTranslations(
+          textToTranslate,
+          originalLang
+        );
+        if (translations) {
+          review.translations = translations;
+          review.originalLanguage = originalLang;
+        }
+      } catch (translationError) {
+        console.warn('[ReviewController] Translation failed:', translationError.message);
+      }
 
       await review.save();
 
@@ -275,6 +292,23 @@ class ReviewController {
         review.moderation.flaggedBy = 'system';
         review.moderation.flagReason = 'Profanity detected in provider response';
         review.status = 'flagged';
+      }
+
+      // Generar traducción de la respuesta del proveedor ANTES de guardar
+      try {
+        const originalLang = translationService.detectLanguage(comment);
+        const translations = await translationService.generateTranslations(
+          { providerResponseComment: comment },
+          originalLang
+        );
+        if (translations) {
+          // Merge con traducciones existentes
+          if (!review.translations) review.translations = { es: {}, en: {} };
+          review.translations.es.providerResponseComment = translations.es.providerResponseComment;
+          review.translations.en.providerResponseComment = translations.en.providerResponseComment;
+        }
+      } catch (translationError) {
+        console.warn('[ReviewController] Provider response translation failed:', translationError.message);
       }
 
       await review.save();

@@ -19,6 +19,22 @@ const serviceRequestSchema = new mongoose.Schema({
       type: String,
       required: true
     },
+    // Traducciones automáticas de título y descripción
+    translations: {
+      es: {
+        title: String,
+        description: String
+      },
+      en: {
+        title: String,
+        description: String
+      }
+    },
+    originalLanguage: {
+      type: String,
+      enum: ['es', 'en'],
+      default: 'es'
+    },
     category: {
       type: String,
       enum: SERVICE_CATEGORIES,

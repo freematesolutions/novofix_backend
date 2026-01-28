@@ -48,6 +48,24 @@ const reviewSchema = new mongoose.Schema({
     respondedAt: Date,
     editedAt: Date
   },
+  // Traducciones automáticas de la reseña y respuesta
+  translations: {
+    es: {
+      title: String,
+      comment: String,
+      providerResponseComment: String
+    },
+    en: {
+      title: String,
+      comment: String,
+      providerResponseComment: String
+    }
+  },
+  originalLanguage: {
+    type: String,
+    enum: ['es', 'en'],
+    default: 'es'
+  },
   status: {
     type: String,
     enum: ['active', 'flagged', 'removed'],

@@ -64,10 +64,24 @@ class ChatController {
 
         await chat.save();
 
-        // Crear mensaje de sistema inicial
+        // Crear mensaje de sistema inicial con datos para traducción
+        const amount = proposal.pricing?.amount;
+        const currency = proposal.pricing?.currency || 'USD';
+        const formattedAmount = amount 
+          ? Intl.NumberFormat('es-AR', { style: 'currency', currency }).format(amount)
+          : null;
+        
         await this.createSystemMessage(
           chat._id,
-          `💬 Conversación iniciada sobre la propuesta de ${proposal.pricing?.amount ? Intl.NumberFormat('es-AR', { style: 'currency', currency: proposal.pricing.currency || 'USD' }).format(proposal.pricing.amount) : 'la propuesta'}. Pueden negociar términos y resolver dudas aquí.`
+          `💬 Conversación iniciada sobre la propuesta de ${formattedAmount || 'la propuesta'}. Pueden negociar términos y resolver dudas aquí.`,
+          {
+            key: 'chat.system.proposalStarted',
+            params: {
+              amount: amount || 0,
+              currency: currency,
+              formattedAmount: formattedAmount || ''
+            }
+          }
         );
 
         // Re-populate después de guardar
@@ -126,10 +140,14 @@ class ChatController {
 
       await chat.save();
 
-      // Crear mensaje de sistema inicial
+      // Crear mensaje de sistema inicial con datos para traducción
       await this.createSystemMessage(
         chat._id,
-        'Chat iniciado para el servicio. Pueden coordinar detalles aquí.'
+        'Chat iniciado para el servicio. Pueden coordinar detalles aquí.',
+        {
+          key: 'chat.system.bookingStarted',
+          params: {}
+        }
       );
 
       return chat;
@@ -417,14 +435,26 @@ class ChatController {
 
   /**
    * Crear mensaje de sistema
+   * @param {string} chatId - ID del chat
+   * @param {string} text - Texto del mensaje (fallback si no hay traducción)
+   * @param {Object} translationData - Datos para traducción dinámica
+   * @param {string} translationData.key - Clave de traducción (ej: 'chat.system.proposalStarted')
+   * @param {Object} translationData.params - Parámetros para interpolación
    */
-  async createSystemMessage(chatId, text) {
+  async createSystemMessage(chatId, text, translationData = null) {
     try {
       const message = new Message({
         chat: chatId,
         sender: null, // Mensaje de sistema
         senderModel: 'System',
-        content: { text },
+        content: { 
+          text,
+          // Agregar datos de traducción si se proporcionan
+          ...(translationData && {
+            translationKey: translationData.key,
+            translationParams: translationData.params || {}
+          })
+        },
         type: 'system',
         status: 'sent'
       });

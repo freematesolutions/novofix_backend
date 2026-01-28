@@ -2,6 +2,7 @@
 import ServiceRequest from '../models/Service/ServiceRequest.js';
 import matchingService from '../services/internal/matchingService.js';
 import notificationService from '../services/external/notificationService.js';
+import translationService from '../services/external/translationService.js';
 import * as agendaService from '../services/internal/agendaService.js';
 import emitter from '../websocket/services/emitterService.js';
 
@@ -92,9 +93,24 @@ class RequestController {
         expiryDate
       });
 
+      // Generar traducciones ANTES de guardar para que estén disponibles inmediatamente
+      try {
+        const originalLang = translationService.detectLanguage(description || title);
+        const translations = await translationService.generateTranslations(
+          { title, description },
+          originalLang
+        );
+        if (translations) {
+          serviceRequest.basicInfo.translations = translations;
+          serviceRequest.basicInfo.originalLanguage = originalLang;
+        }
+      } catch (translationError) {
+        console.warn('[RequestController] Translation failed, continuing without:', translationError.message);
+      }
+
       await serviceRequest.save();
 
-      // Responder rápido al cliente
+      // Responder al cliente con las traducciones ya incluidas
       res.status(201).json({
         success: true,
         message: initialStatus === 'draft'
@@ -105,7 +121,7 @@ class RequestController {
         }
       });
 
-      // Procesos secundarios en background (no bloquean la respuesta)
+      // Procesos secundarios en background (notificaciones, matching)
       setImmediate(async () => {
         try {
           // Publicación y notificación: si no hay elegibles por geo, mantener publicada si hay proveedores de la categoría

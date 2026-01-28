@@ -3,6 +3,7 @@ import Proposal from '../models/Service/Proposal.js';
 import ServiceRequest from '../models/Service/ServiceRequest.js';
 import Provider from '../models/User/Provider.js';
 import notificationService from '../services/external/notificationService.js';
+import translationService from '../services/external/translationService.js';
 import scoringService from '../services/internal/scoringService.js';
 import bookingController from './bookingController.js';
 import emitter from '../websocket/services/emitterService.js';
@@ -397,6 +398,21 @@ class ProposalController {
         expiryDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 días
       });
 
+      // Generar traducciones del mensaje ANTES de guardar
+      try {
+        const originalLang = translationService.detectLanguage(message);
+        const translations = await translationService.generateTranslations(
+          { message },
+          originalLang
+        );
+        if (translations) {
+          proposal.translations = translations;
+          proposal.originalLanguage = originalLang;
+        }
+      } catch (translationError) {
+        console.warn('[ProposalController] Translation failed:', translationError.message);
+      }
+
       await proposal.save();
 
       // Actualizar service request con la nueva propuesta
@@ -534,6 +550,8 @@ class ProposalController {
           proposals,
           request: {
             title: serviceRequest.basicInfo.title,
+            translations: serviceRequest.basicInfo.translations,
+            originalLanguage: serviceRequest.basicInfo.originalLanguage,
             budget: serviceRequest.budget,
             status: serviceRequest.status
           }

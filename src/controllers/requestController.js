@@ -270,6 +270,26 @@ class RequestController {
       if (Array.isArray(photos)) sr.media.photos = photos;
       if (Array.isArray(videos)) sr.media.videos = videos;
 
+      // Regenerar traducciones si título o descripción cambiaron, o si no existen
+      const needsTranslation = (title || description) || !sr.basicInfo.translations;
+      if (needsTranslation) {
+        try {
+          const currentTitle = sr.basicInfo.title;
+          const currentDesc = sr.basicInfo.description;
+          const originalLang = translationService.detectLanguage(currentDesc || currentTitle);
+          const translations = await translationService.generateTranslations(
+            { title: currentTitle, description: currentDesc },
+            originalLang
+          );
+          if (translations) {
+            sr.basicInfo.translations = translations;
+            sr.basicInfo.originalLanguage = originalLang;
+          }
+        } catch (translationError) {
+          console.warn('[RequestController] Translation failed during update:', translationError.message);
+        }
+      }
+
       await sr.save();
       res.json({ success: true, message: 'Service request updated', data: { request: sr } });
     } catch (error) {
@@ -462,12 +482,38 @@ class RequestController {
         .select(options.select)
         .populate(options.populate);
 
+      // Generar traducciones on-demand para requests antiguos que no las tienen
+      // Esto se hace en background sin bloquear la respuesta
+      const requestsWithTranslations = await Promise.all(
+        requests.map(async (r) => {
+          if (!r.basicInfo?.translations && r.basicInfo?.title) {
+            try {
+              const { title, description } = r.basicInfo;
+              const originalLang = translationService.detectLanguage(description || title);
+              const translations = await translationService.generateTranslations(
+                { title, description },
+                originalLang
+              );
+              if (translations) {
+                r.basicInfo.translations = translations;
+                r.basicInfo.originalLanguage = originalLang;
+                // Guardar en background
+                r.save().catch(err => console.warn('[RequestController] Failed to save translations:', err.message));
+              }
+            } catch (translationError) {
+              console.warn('[RequestController] On-demand translation failed:', translationError.message);
+            }
+          }
+          return r;
+        })
+      );
+
       const total = await ServiceRequest.countDocuments(query);
 
       res.json({
         success: true,
         data: {
-          requests,
+          requests: requestsWithTranslations,
           pagination: {
             page: options.page,
             limit: options.limit,
@@ -523,6 +569,26 @@ class RequestController {
           success: false,
           message: 'Service request not found'
         });
+      }
+
+      // Generar traducciones on-demand si no existen (para requests antiguos)
+      if (!serviceRequest.basicInfo.translations && serviceRequest.basicInfo.title) {
+        try {
+          const { title, description } = serviceRequest.basicInfo;
+          const originalLang = translationService.detectLanguage(description || title);
+          const translations = await translationService.generateTranslations(
+            { title, description },
+            originalLang
+          );
+          if (translations) {
+            serviceRequest.basicInfo.translations = translations;
+            serviceRequest.basicInfo.originalLanguage = originalLang;
+            // Guardar en background sin bloquear la respuesta
+            serviceRequest.save().catch(err => console.warn('[RequestController] Failed to save translations:', err.message));
+          }
+        } catch (translationError) {
+          console.warn('[RequestController] On-demand translation failed:', translationError.message);
+        }
       }
 
       // Incrementar contador de vistas para proveedores

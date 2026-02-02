@@ -323,14 +323,25 @@ class BookingController {
       const booking = await Booking.findOne({
         _id: id,
         client: req.user._id,
-        status: 'completed'
+        status: { $in: ['confirmed', 'provider_en_route', 'in_progress'] }
       });
 
       if (!booking) {
         return res.status(404).json({
           success: false,
-          message: 'Booking not found or not completed'
+          message: 'Booking not found or not in a completable state'
         });
+      }
+
+      // Marcar como completed si aún no lo está
+      if (['confirmed', 'provider_en_route', 'in_progress'].includes(booking.status)) {
+        booking.status = 'completed';
+        booking.statusHistory.push({
+          status: 'completed',
+          timestamp: new Date(),
+          notes: 'Client confirmed service completion'
+        });
+        await booking.save();
       }
 
       // Procesar pago (integrar con Stripe)
@@ -404,12 +415,13 @@ class BookingController {
 
   /**
    * Validar transición de estados
+   * Simplificado: confirmed → completed directamente
    */
   isValidStatusTransition(fromStatus, toStatus) {
     const validTransitions = {
-      'confirmed': ['provider_en_route', 'cancelled'],
-      'provider_en_route': ['in_progress', 'cancelled'],
-      'in_progress': ['completed', 'cancelled'],
+      'confirmed': ['completed', 'cancelled'], // Simplificado: ir directo a completed
+      'provider_en_route': ['in_progress', 'completed', 'cancelled'], // Mantener compatibilidad con bookings existentes
+      'in_progress': ['completed', 'cancelled'], // Mantener compatibilidad con bookings existentes
       'completed': [], // Estado final
       'cancelled': [] // Estado final
     };

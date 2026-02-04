@@ -483,7 +483,7 @@ class RequestController {
         .populate(options.populate);
 
       // Generar traducciones on-demand para requests antiguos que no las tienen
-      // Esto se hace en background sin bloquear la respuesta
+      // Se espera a que terminen las traducciones antes de responder para garantizar consistencia
       const requestsWithTranslations = await Promise.all(
         requests.map(async (r) => {
           if (!r.basicInfo?.translations && r.basicInfo?.title) {
@@ -497,11 +497,17 @@ class RequestController {
               if (translations) {
                 r.basicInfo.translations = translations;
                 r.basicInfo.originalLanguage = originalLang;
-                // Guardar en background
+                // Guardar de forma asíncrona pero no bloquear - el cache evitará llamadas futuras
                 r.save().catch(err => console.warn('[RequestController] Failed to save translations:', err.message));
               }
             } catch (translationError) {
               console.warn('[RequestController] On-demand translation failed:', translationError.message);
+              // Crear traducciones fallback con el texto original para garantizar estructura consistente
+              r.basicInfo.translations = {
+                es: { title: r.basicInfo.title, description: r.basicInfo.description || '' },
+                en: { title: r.basicInfo.title, description: r.basicInfo.description || '' }
+              };
+              r.basicInfo.originalLanguage = 'es';
             }
           }
           return r;
@@ -560,7 +566,13 @@ class RequestController {
 
       const serviceRequest = await ServiceRequest.findOne(query)
         .populate('client', 'profile contact')
-        .populate('proposals')
+        .populate({
+          path: 'proposals',
+          populate: {
+            path: 'provider',
+            select: '_id profile providerProfile'
+          }
+        })
         .populate('acceptedProposal')
         .populate('eligibleProviders.provider', 'providerProfile subscription');
 
@@ -583,11 +595,17 @@ class RequestController {
           if (translations) {
             serviceRequest.basicInfo.translations = translations;
             serviceRequest.basicInfo.originalLanguage = originalLang;
-            // Guardar en background sin bloquear la respuesta
+            // Guardar de forma asíncrona - el cache evitará llamadas futuras
             serviceRequest.save().catch(err => console.warn('[RequestController] Failed to save translations:', err.message));
           }
         } catch (translationError) {
           console.warn('[RequestController] On-demand translation failed:', translationError.message);
+          // Crear traducciones fallback con el texto original para garantizar estructura consistente
+          serviceRequest.basicInfo.translations = {
+            es: { title: serviceRequest.basicInfo.title, description: serviceRequest.basicInfo.description || '' },
+            en: { title: serviceRequest.basicInfo.title, description: serviceRequest.basicInfo.description || '' }
+          };
+          serviceRequest.basicInfo.originalLanguage = 'es';
         }
       }
 

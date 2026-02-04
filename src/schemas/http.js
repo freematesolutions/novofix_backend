@@ -75,6 +75,9 @@ export const updateServiceRequestSchema = Joi.object({
 
 export const proposalDraftUpdateSchema = Joi.object({
   amount: Joi.number().positive(),
+  amountMin: Joi.number().positive(),
+  amountMax: Joi.number().positive(),
+  isRange: Joi.boolean(),
   breakdown: Joi.object().unknown(true),
   estimatedHours: Joi.number().positive(),
   startDate: Joi.alternatives().try(Joi.date().iso(), Joi.string().isoDate()).allow(null),
@@ -91,7 +94,10 @@ export const proposalDraftUpdateSchema = Joi.object({
 }).min(1);
 
 export const proposalSendSchema = Joi.object({
-  amount: Joi.number().positive().required(),
+  amount: Joi.number().positive().allow(null),
+  amountMin: Joi.number().positive().allow(null),
+  amountMax: Joi.number().positive().allow(null),
+  isRange: Joi.boolean().allow(null),
   breakdown: Joi.object().unknown(true),
   estimatedHours: Joi.number().positive().allow(null),
   startDate: Joi.alternatives().try(Joi.date().iso(), Joi.string().isoDate()).allow(null),
@@ -105,6 +111,21 @@ export const proposalSendSchema = Joi.object({
   cleanupIncluded: Joi.boolean().allow(null),
   additionalTerms: Joi.string().allow('', null),
   message: Joi.string().allow('', null)
+}).custom((value, helpers) => {
+  // Validación personalizada: debe tener amount O (amountMin + amountMax con isRange)
+  if (value.isRange) {
+    if (!value.amountMin || !value.amountMax) {
+      return helpers.error('any.custom', { message: 'When isRange is true, amountMin and amountMax are required' });
+    }
+    if (value.amountMin >= value.amountMax) {
+      return helpers.error('any.custom', { message: 'amountMax must be greater than amountMin' });
+    }
+  } else {
+    if (!value.amount) {
+      return helpers.error('any.custom', { message: 'amount is required when isRange is false' });
+    }
+  }
+  return value;
 });
 
 export default {

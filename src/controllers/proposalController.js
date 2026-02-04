@@ -299,6 +299,9 @@ class ProposalController {
       const { serviceRequestId } = req.params;
       const {
         amount,
+        amountMin,
+        amountMax,
+        isRange,
         breakdown,
         estimatedHours,
         startDate,
@@ -362,21 +365,30 @@ class ProposalController {
 
       // Calcular comisión según plan del proveedor
       const commissionRate = this.deriveCommissionRate(provider);
+      
+      // Determinar el monto para la comisión (promedio del rango o monto fijo)
+      let finalAmount = amount;
+      let pricingData = {
+        currency: 'USD',
+        breakdown: breakdown || {},
+        paymentTerms: 'upon_completion',
+        isRange: !!isRange
+      };
+      
+      if (isRange && amountMin && amountMax) {
+        pricingData.amountMin = Number(amountMin);
+        pricingData.amountMax = Number(amountMax);
+        pricingData.amount = Math.round((Number(amountMin) + Number(amountMax)) / 2); // Promedio para comisión
+        finalAmount = pricingData.amount;
+      } else {
+        pricingData.amount = Number(amount);
+        finalAmount = Number(amount);
+      }
 
       const proposal = new Proposal({
         serviceRequest: serviceRequestId,
         provider: req.user._id,
-        pricing: {
-          amount,
-          currency: 'USD',
-          breakdown: breakdown || {
-            labor: amount * 0.7,
-            materials: amount * 0.2,
-            transportation: amount * 0.1,
-            taxes: 0
-          },
-          paymentTerms: 'upon_completion'
-        },
+        pricing: pricingData,
         timing: {
           estimatedHours,
           startDate: startDate ? new Date(startDate) : null,
@@ -392,7 +404,7 @@ class ProposalController {
         message,
         commission: {
           rate: commissionRate,
-          amount: Math.round(amount * commissionRate * 100) / 100
+          amount: Math.round(finalAmount * commissionRate * 100) / 100
         },
         status: 'sent',
         expiryDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 días

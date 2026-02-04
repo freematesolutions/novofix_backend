@@ -468,27 +468,47 @@ class BookingController {
    */
   async processPayment(booking) {
     try {
-      // Confirmar pago en Stripe
-      await stripeService.confirmPayment(booking.payment.stripePaymentIntentId);
+      // Verificar si hay un PaymentIntent para procesar
+      if (!booking.payment?.stripePaymentIntentId) {
+        console.log('BookingController - processPayment: No payment intent found, skipping payment processing');
+        return { skipped: true, reason: 'No payment intent' };
+      }
 
-      // Actualizar estado de pago
-      booking.payment.status = 'completed';
-      booking.payment.paidAt = new Date();
-      await booking.save();
+      // Confirmar/verificar pago en Stripe
+      const paymentResult = await stripeService.confirmPayment(booking.payment.stripePaymentIntentId);
 
-      // Notificar al proveedor del pago recibido
-      await notificationService.sendProviderNotification({
-        providerId: booking.provider,
-        type: 'PAYMENT_RECEIVED',
-        data: {
-          bookingId: booking._id,
-          amount: booking.payment.providerEarnings,
-          clientName: booking.client.profile.firstName
-        }
-      });
+      // Si el pago requiere acción del cliente, no marcarlo como completado
+      if (paymentResult.requiresAction) {
+        console.log('BookingController - processPayment: Payment requires client action');
+        return { pending: true, status: paymentResult.status };
+      }
+
+      // Si el pago fue exitoso, actualizar estado
+      if (paymentResult.status === 'succeeded') {
+        booking.payment.status = 'completed';
+        booking.payment.paidAt = new Date();
+        await booking.save();
+
+        // Notificar al proveedor del pago recibido
+        await notificationService.sendProviderNotification({
+          providerId: booking.provider,
+          type: 'PAYMENT_RECEIVED',
+          data: {
+            bookingId: booking._id,
+            amount: booking.payment.providerEarnings,
+            clientName: booking.client?.profile?.firstName || 'Cliente'
+          }
+        });
+        
+        return { success: true };
+      }
+
+      return { pending: true, status: paymentResult.status };
     } catch (error) {
       console.error('BookingController - processPayment error:', error);
-      throw error;
+      // No propagar el error - el pago puede procesarse luego
+      // pero la confirmación de finalización debe continuar
+      return { error: true, message: error.message };
     }
   }
 

@@ -15,8 +15,20 @@ const proposalSchema = new mongoose.Schema({
   pricing: {
     amount: {
       type: Number,
-      required: true,
       min: 0
+    },
+    // Soporte para rango de precios cuando el proveedor no tiene certeza del monto exacto
+    amountMin: {
+      type: Number,
+      min: 0
+    },
+    amountMax: {
+      type: Number,
+      min: 0
+    },
+    isRange: {
+      type: Boolean,
+      default: false
     },
     currency: {
       type: String,

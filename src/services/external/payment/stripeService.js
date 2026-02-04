@@ -73,6 +73,64 @@ class StripeService {
       throw error;
     }
   }
+
+  /**
+   * Confirmar/verificar el estado de un PaymentIntent
+   * Si el pago ya fue completado por el cliente, retorna success
+   * Si el pago está pendiente, intenta confirmarlo (para casos de pago manual)
+   */
+  async confirmPayment(paymentIntentId) {
+    try {
+      if (!paymentIntentId) {
+        console.log('StripeService - confirmPayment: No payment intent ID provided, skipping');
+        return { status: 'skipped', message: 'No payment intent ID' };
+      }
+
+      // Primero obtener el estado actual del PaymentIntent
+      const paymentIntent = await this.stripe.paymentIntents.retrieve(paymentIntentId);
+      
+      // Si ya está completado, retornar éxito
+      if (paymentIntent.status === 'succeeded') {
+        return { status: 'succeeded', paymentIntent };
+      }
+
+      // Si está pendiente de confirmación y tiene método de pago, intentar confirmar
+      if (paymentIntent.status === 'requires_confirmation' && paymentIntent.payment_method) {
+        const confirmed = await this.stripe.paymentIntents.confirm(paymentIntentId);
+        return { status: confirmed.status, paymentIntent: confirmed };
+      }
+
+      // Si requiere acción del cliente (3D Secure, etc.) o no tiene método de pago
+      if (paymentIntent.status === 'requires_action' || paymentIntent.status === 'requires_payment_method') {
+        console.log(`StripeService - confirmPayment: Payment requires client action (${paymentIntent.status})`);
+        return { status: paymentIntent.status, paymentIntent, requiresAction: true };
+      }
+
+      // Para cualquier otro estado, retornar el estado actual
+      return { status: paymentIntent.status, paymentIntent };
+    } catch (error) {
+      console.error('StripeService - confirmPayment error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Capturar un PaymentIntent (para pagos con capture_method: 'manual')
+   */
+  async capturePayment(paymentIntentId, amountToCapture = null) {
+    try {
+      const captureParams = {};
+      if (amountToCapture) {
+        captureParams.amount_to_capture = amountToCapture;
+      }
+      
+      const paymentIntent = await this.stripe.paymentIntents.capture(paymentIntentId, captureParams);
+      return paymentIntent;
+    } catch (error) {
+      console.error('StripeService - capturePayment error:', error);
+      throw error;
+    }
+  }
 }
 
 export default new StripeService();

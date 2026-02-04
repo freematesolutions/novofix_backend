@@ -40,11 +40,20 @@ class CountersController {
       // Client counters
       if (hasClient) {
         const [requestsOpen, proposalsReceived, bookingsUpcoming, chatsUnread] = await Promise.all([
-          // Open requests (published/active)
-          ServiceRequest.countDocuments({ client: userId, status: { $in: ['published', 'active'] } }),
-          // Proposals received on user's open requests
+          // Open requests (published only, excluding those with accepted proposals)
+          // Solo contar solicitudes pendientes a propuestas o con propuestas sin aceptar
+          ServiceRequest.countDocuments({ 
+            client: userId, 
+            status: 'published', 
+            acceptedProposal: { $exists: false } 
+          }),
+          // Proposals received on user's open requests (excluding those already accepted)
           (async () => {
-            const openRequests = await ServiceRequest.find({ client: userId, status: { $in: ['published', 'active'] } }).select('_id').lean();
+            const openRequests = await ServiceRequest.find({ 
+              client: userId, 
+              status: 'published', 
+              acceptedProposal: { $exists: false } 
+            }).select('_id').lean();
             if (!openRequests.length) return 0;
             const ids = openRequests.map(r => r._id);
             return Proposal.countDocuments({ serviceRequest: { $in: ids }, status: { $in: ['sent', 'viewed'] } });

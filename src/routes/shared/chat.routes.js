@@ -20,6 +20,9 @@ router.get('/', chatController.getUserChats.bind(chatController));
 // Crear o obtener chat para una propuesta (negociación antes de aceptar)
 router.post('/proposal/:proposalId', chatController.createOrGetProposalChat.bind(chatController));
 
+// Crear chat para solicitar más información sobre una solicitud de servicio
+router.post('/request/:requestId/info', chatController.createInfoRequestChat.bind(chatController));
+
 // Gestión de mensajes específicos del chat
 router.get('/:chatId/messages', chatController.getChatMessages.bind(chatController));
 router.post('/:chatId/messages', chatController.sendMessage.bind(chatController));

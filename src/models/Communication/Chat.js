@@ -33,7 +33,7 @@ const chatSchema = new mongoose.Schema({
   // Tipo de chat para distinguir contexto
   chatType: {
     type: String,
-    enum: ['booking', 'proposal_negotiation', 'inquiry'],
+    enum: ['booking', 'proposal_negotiation', 'inquiry', 'info_request'],
     default: 'booking'
   },
   status: {

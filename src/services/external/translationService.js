@@ -4,6 +4,39 @@
 const MYMEMORY_URL = 'https://api.mymemory.translated.net/get';
 const SUPPORTED_LANGUAGES = ['es', 'en'];
 const DEFAULT_TIMEOUT = 10000; // 10 segundos
+const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 horas en ms
+const MAX_CACHE_SIZE = 1000; // Máximo de entradas en cache
+
+// Cache en memoria para evitar llamadas repetidas a la API
+const translationCache = new Map();
+
+/**
+ * Genera una clave única para el cache
+ */
+function getCacheKey(text, sourceLang, targetLang) {
+  return `${sourceLang}|${targetLang}|${text.substring(0, 100)}`;
+}
+
+/**
+ * Limpia entradas antiguas del cache
+ */
+function cleanupCache() {
+  const now = Date.now();
+  for (const [key, entry] of translationCache.entries()) {
+    if (now - entry.timestamp > CACHE_TTL) {
+      translationCache.delete(key);
+    }
+  }
+  // Si aún excede el límite, eliminar las más antiguas
+  if (translationCache.size > MAX_CACHE_SIZE) {
+    const entries = Array.from(translationCache.entries())
+      .sort((a, b) => a[1].timestamp - b[1].timestamp);
+    const toDelete = entries.slice(0, entries.length - MAX_CACHE_SIZE);
+    for (const [key] of toDelete) {
+      translationCache.delete(key);
+    }
+  }
+}
 
 /**
  * Traduce un texto de un idioma a otro usando MyMemory API
@@ -26,6 +59,13 @@ async function translateText(text, sourceLang, targetLang) {
   if (!SUPPORTED_LANGUAGES.includes(targetLang)) {
     console.warn(`[TranslationService] Unsupported target language: ${targetLang}`);
     return null;
+  }
+
+  // Verificar cache primero
+  const cacheKey = getCacheKey(text, sourceLang, targetLang);
+  const cachedEntry = translationCache.get(cacheKey);
+  if (cachedEntry && (Date.now() - cachedEntry.timestamp < CACHE_TTL)) {
+    return cachedEntry.translated;
   }
 
   try {
@@ -52,11 +92,23 @@ async function translateText(text, sourceLang, targetLang) {
     
     // MyMemory retorna { responseStatus: 200, responseData: { translatedText: "..." } }
     if (data.responseStatus === 200 && data.responseData?.translatedText) {
-      const translated = data.responseData.translatedText;
+      let translated = data.responseData.translatedText;
       // MyMemory a veces retorna en mayúsculas, normalizamos
       if (translated === translated.toUpperCase() && text !== text.toUpperCase()) {
-        return translated.charAt(0).toUpperCase() + translated.slice(1).toLowerCase();
+        translated = translated.charAt(0).toUpperCase() + translated.slice(1).toLowerCase();
       }
+      
+      // Guardar en cache
+      translationCache.set(cacheKey, {
+        translated,
+        timestamp: Date.now()
+      });
+      
+      // Limpiar cache periódicamente
+      if (translationCache.size > MAX_CACHE_SIZE * 0.9) {
+        cleanupCache();
+      }
+      
       return translated;
     }
 
@@ -180,10 +232,30 @@ function getTranslatedField(translations, fieldName, lang, fallback = '') {
   return fallback;
 }
 
+/**
+ * Limpia el cache de traducciones (útil para testing)
+ */
+function clearCache() {
+  translationCache.clear();
+}
+
+/**
+ * Obtiene estadísticas del cache
+ */
+function getCacheStats() {
+  return {
+    size: translationCache.size,
+    maxSize: MAX_CACHE_SIZE,
+    ttlMs: CACHE_TTL
+  };
+}
+
 export default {
   translateText,
   generateTranslations,
   detectLanguage,
   getTranslatedField,
+  clearCache,
+  getCacheStats,
   SUPPORTED_LANGUAGES
 };

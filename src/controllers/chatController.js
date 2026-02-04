@@ -114,6 +114,143 @@ class ChatController {
   }
 
   /**
+   * Crear chat para solicitar más información sobre una solicitud de servicio
+   * Permite al proveedor comunicarse con el cliente antes de enviar propuesta formal
+   */
+  async createInfoRequestChat(req, res) {
+    try {
+      const { requestId } = req.params;
+      const { message, type } = req.body;
+
+      // Importar ServiceRequest
+      const ServiceRequest = (await import('../models/Service/ServiceRequest.js')).default;
+
+      // Obtener la solicitud de servicio
+      const serviceRequest = await ServiceRequest.findById(requestId);
+      if (!serviceRequest) {
+        return res.status(404).json({
+          success: false,
+          message: 'Service request not found'
+        });
+      }
+
+      // Verificar que sea un proveedor
+      const userRoles = Array.isArray(req.user?.roles) ? req.user.roles : [req.user?.role];
+      const isProvider = userRoles.includes('provider');
+      if (!isProvider) {
+        return res.status(403).json({
+          success: false,
+          message: 'Only providers can request more information'
+        });
+      }
+
+      // Buscar chat existente para esta solicitud y proveedor
+      let chat = await Chat.findOne({
+        'participants.client': serviceRequest.client,
+        'participants.provider': req.user._id,
+        serviceRequest: requestId,
+        chatType: 'info_request'
+      }).populate('participants.client', 'profile')
+        .populate('participants.provider', 'providerProfile')
+        .populate('lastMessage');
+
+      if (!chat) {
+        // Crear nuevo chat de solicitud de información
+        chat = new Chat({
+          participants: {
+            client: serviceRequest.client,
+            provider: req.user._id
+          },
+          serviceRequest: requestId,
+          chatType: 'info_request',
+          status: 'active',
+          metadata: {
+            createdAt: new Date(),
+            lastActivity: new Date()
+          }
+        });
+
+        await chat.save();
+
+        // Crear mensaje de sistema inicial
+        const providerName = req.user.providerProfile?.businessName || 
+          `${req.user.providerProfile?.firstName || ''} ${req.user.providerProfile?.lastName || ''}`.trim() ||
+          'Un profesional';
+        
+        await this.createSystemMessage(
+          chat._id,
+          `📋 ${providerName} necesita más información sobre tu solicitud antes de enviarte una propuesta.`,
+          {
+            key: 'chat.system.infoRequestStarted',
+            params: { providerName }
+          }
+        );
+      }
+
+      // Crear el mensaje del proveedor solicitando información
+      if (message && message.trim()) {
+        const infoMessage = new Message({
+          chat: chat._id,
+          sender: req.user._id,
+          senderModel: 'Provider',
+          content: {
+            text: message.trim(),
+            attachments: []
+          },
+          type: 'text',
+          status: 'sent'
+        });
+
+        await infoMessage.save();
+
+        // Actualizar último mensaje del chat
+        chat.lastMessage = infoMessage._id;
+        chat.metadata.lastActivity = new Date();
+        chat.unreadCount.client += 1;
+        await chat.save();
+
+        // Emitir evento de socket
+        this.emitNewMessage(chat, {
+          ...infoMessage.toObject(),
+          sender: {
+            _id: String(req.user._id),
+            providerProfile: req.user.providerProfile
+          }
+        });
+
+        // Notificar al cliente
+        try {
+          emitter.emitToUser(serviceRequest.client.toString(), 'NEW_MESSAGE', {
+            chatId: chat._id,
+            message: infoMessage
+          });
+          emitter.emitCountersUpdateToUser(serviceRequest.client, { reason: 'info_request_received' });
+        } catch (err) {
+          console.error('Error emitting info request notification:', err);
+        }
+      }
+
+      // Re-populate
+      chat = await Chat.findById(chat._id)
+        .populate('participants.client', 'profile')
+        .populate('participants.provider', 'providerProfile')
+        .populate('lastMessage');
+
+      res.json({
+        success: true,
+        message: 'Information request sent',
+        data: { chat }
+      });
+    } catch (error) {
+      console.error('ChatController - createInfoRequestChat error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to create info request chat'
+      });
+    }
+  }
+
+  /**
    * Crear chat para una reserva
    */
   async createBookingChat(booking) {

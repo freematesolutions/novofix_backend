@@ -27,15 +27,19 @@ class GuestController {
         'profile.firstName': 1,
         'profile.avatar': 1,
         'providerProfile.businessName': 1,
+        'providerProfile.description': 1,
         'providerProfile.businessDescription': 1,
         'providerProfile.rating.average': 1,
         'providerProfile.rating.count': 1,
         'providerProfile.services': 1,
         'providerProfile.portfolio': 1,
+        'providerProfile.stats': 1,
         'subscription.plan': 1,
         'subscription.status': 1,
         'providerProfile.serviceArea.location': 1,
-        'providerProfile.serviceArea.address': 1
+        'providerProfile.serviceArea.address': 1,
+        'providerProfile.serviceArea.zones': 1,
+        'providerProfile.serviceArea.radius': 1
       };
 
       const lim = Math.min(Math.max(parseInt(limit) || 20, 1), 100);
@@ -63,6 +67,7 @@ class GuestController {
           orText.push(
             { 'providerProfile.businessName': wordRegex },
             { 'profile.firstName': wordRegex },
+            { 'providerProfile.description': wordRegex },
             { 'providerProfile.businessDescription': wordRegex },
             { 'providerProfile.services.category': wordRegex },
             { 'providerProfile.services.description': wordRegex },
@@ -74,6 +79,7 @@ class GuestController {
         const searchRegex = { $regex: searchText, $options: 'i' };
         orText.push(
           { 'providerProfile.businessName': searchRegex },
+          { 'providerProfile.description': searchRegex },
           { 'providerProfile.businessDescription': searchRegex },
           { 'providerProfile.services.description': searchRegex }
         );

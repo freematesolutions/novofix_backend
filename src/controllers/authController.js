@@ -1053,12 +1053,23 @@ class AuthController {
         case 'provider': {
           const svcArea = updateData.serviceArea;
           const setOps = {
-            'profile': mergedProfile,
-            'providerProfile.businessName': updateData.businessName,
-            'providerProfile.description': updateData.description,
-            'providerProfile.services': updateData.services,
-            'providerProfile.availability': updateData.availability
+            'profile': mergedProfile
           };
+          
+          // Solo agregar campos si tienen valor definido
+          if (updateData.businessName !== undefined) {
+            setOps['providerProfile.businessName'] = updateData.businessName;
+          }
+          if (updateData.description !== undefined) {
+            setOps['providerProfile.description'] = updateData.description;
+          }
+          if (updateData.services !== undefined) {
+            setOps['providerProfile.services'] = updateData.services;
+          }
+          if (updateData.availability !== undefined) {
+            setOps['providerProfile.availability'] = updateData.availability;
+          }
+          
           if (svcArea) {
             if (svcArea.coordinates) {
               const { lat, lng } = svcArea.coordinates;

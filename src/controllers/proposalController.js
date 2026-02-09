@@ -711,7 +711,9 @@ class ProposalController {
       status: { $in: ['sent', 'viewed', 'accepted'] }
     });
 
-    return totalRequests > 0 ? (respondedRequests / totalRequests) * 100 : 0;
+    // Limitar a 100% máximo para evitar valores mayores (puede ocurrir por datos históricos)
+    const rate = totalRequests > 0 ? (respondedRequests / totalRequests) * 100 : 0;
+    return Math.min(100, Math.round(rate));
   }
 }
 

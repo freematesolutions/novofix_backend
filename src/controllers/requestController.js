@@ -710,6 +710,7 @@ class RequestController {
         'providerProfile.businessDescription': 1,
         'providerProfile.rating.average': 1,
         'providerProfile.rating.count': 1,
+        'providerProfile.rating.breakdown': 1,
         'providerProfile.services': 1,
         'providerProfile.portfolio': 1,
         'providerProfile.stats': 1,
@@ -1093,7 +1094,19 @@ class RequestController {
               canReceiveLeads: canLead,
               availabilityStatus: status,
               profile: p.profile,
-              portfolio: p.providerProfile?.portfolio || []
+              portfolio: p.providerProfile?.portfolio || [],
+              // Estructura completa de providerProfile para el modal
+              providerProfile: {
+                businessName: p.providerProfile?.businessName,
+                description: p.providerProfile?.description,
+                businessDescription: p.providerProfile?.businessDescription,
+                rating: p.providerProfile?.rating || { average: 0, count: 0, breakdown: {} },
+                services: p.providerProfile?.services || [],
+                portfolio: p.providerProfile?.portfolio || [],
+                stats: p.providerProfile?.stats || {},
+                serviceArea: p.providerProfile?.serviceArea || {}
+              },
+              subscription: p.subscription
             };
           })
         );

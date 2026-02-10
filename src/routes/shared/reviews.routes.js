@@ -34,4 +34,12 @@ router.put('/:reviewId/response', providerOnly, reviewController.respondToReview
 router.patch('/:reviewId/response', providerOnly, reviewController.updateReviewResponse.bind(reviewController));
 router.delete('/:reviewId/response', providerOnly, reviewController.deleteReviewResponse.bind(reviewController));
 
+// ========== RESEÑAS DEL PROVEEDOR HACIA EL CLIENTE ==========
+// Proveedor califica al cliente y opcionalmente a la plataforma
+router.post('/client/booking/:bookingId', providerOnly, reviewController.createClientReview.bind(reviewController));
+// Obtener reseña de cliente por booking
+router.get('/client/booking/:bookingId', clientOrProvider, reviewController.getClientReviewByBooking.bind(reviewController));
+// Verificar si ya existe reseña de cliente
+router.get('/client/booking/:bookingId/exists', providerOnly, reviewController.checkClientReviewExists.bind(reviewController));
+
 export default router;

@@ -1,4 +1,5 @@
 // controllers/guestController.js
+import mongoose from 'mongoose';
 import Session from '../models/System/Session.js';
 import ServiceRequest from '../models/Service/ServiceRequest.js';
 import Client from '../models/User/Client.js';
@@ -31,6 +32,7 @@ class GuestController {
         'providerProfile.businessDescription': 1,
         'providerProfile.rating.average': 1,
         'providerProfile.rating.count': 1,
+        'providerProfile.rating.breakdown': 1,
         'providerProfile.services': 1,
         'providerProfile.portfolio': 1,
         'providerProfile.stats': 1,
@@ -285,6 +287,443 @@ class GuestController {
       res.status(500).json({
         success: false,
         message: 'Failed to search providers'
+      });
+    }
+  }
+
+  /**
+   * Obtener profesionales destacados del sistema (público)
+   * Retorna los mejores proveedores ordenados por score general
+   */
+  async getFeaturedProviders(req, res) {
+    try {
+      const { limit = 10 } = req.query;
+      const Provider = (await import('../models/User/Provider.js')).default;
+      const Review = (await import('../models/Service/Review.js')).default;
+      const scoringService = (await import('../services/internal/scoringService.js')).default;
+
+      const lim = Math.min(Math.max(parseInt(limit) || 10, 1), 20);
+
+      // Buscar proveedores activos con rating y trabajos completados
+      const providers = await Provider.find({
+        isActive: true,
+        'providerProfile.services': { $exists: true, $ne: [] },
+        // Preferir proveedores con al menos algún trabajo o rating
+        $or: [
+          { 'providerProfile.rating.count': { $gt: 0 } },
+          { 'providerProfile.stats.completedJobs': { $gt: 0 } },
+          { 'providerProfile.portfolio': { $exists: true, $ne: [] } }
+        ]
+      }).select({
+        email: 1,
+        'profile.firstName': 1,
+        'profile.avatar': 1,
+        'providerProfile.businessName': 1,
+        'providerProfile.description': 1,
+        'providerProfile.businessDescription': 1,
+        'providerProfile.rating.average': 1,
+        'providerProfile.rating.count': 1,
+        'providerProfile.rating.breakdown': 1,
+        'providerProfile.services': 1,
+        'providerProfile.portfolio': 1,
+        'providerProfile.stats': 1,
+        'subscription.plan': 1,
+        'subscription.status': 1,
+        'providerProfile.serviceArea.address': 1
+      }).lean();
+
+      console.log(`📊 Found ${providers.length} providers for featured section`);
+
+      // Calcular score para cada proveedor
+      const providersWithScore = await Promise.all(
+        providers.map(async (p) => {
+          const scoreData = await scoringService.calculateProviderScore(p);
+          return {
+            ...p,
+            score: scoreData.total,
+            scoreBreakdown: scoreData.breakdown
+          };
+        })
+      );
+
+      // Ordenar primero por plan (pro > basic > free), luego por score
+      const planOrder = { pro: 3, basic: 2, free: 1 };
+      providersWithScore.sort((a, b) => {
+        const planA = planOrder[a.subscription?.plan] || 0;
+        const planB = planOrder[b.subscription?.plan] || 0;
+        if (planA !== planB) return planB - planA;
+        return b.score - a.score;
+      });
+
+      // Limitar resultados
+      const featuredProviders = providersWithScore.slice(0, lim);
+
+      // Obtener reseñas destacadas para cada proveedor (1 reseña más reciente con rating >= 4)
+      const providersWithReviews = await Promise.all(
+        featuredProviders.map(async (provider) => {
+          const featuredReview = await Review.findOne({
+            provider: provider._id,
+            status: 'active',
+            'rating.overall': { $gte: 4 }
+          })
+          .sort({ createdAt: -1 })
+          .select({
+            'rating.overall': 1,
+            'review.comment': 1,
+            'review.title': 1,
+            'translations': 1,
+            'originalLanguage': 1,
+            createdAt: 1
+          })
+          .populate('client', 'profile.firstName profile.avatar')
+          .lean();
+
+          return {
+            ...provider,
+            featuredReview: featuredReview || null
+          };
+        })
+      );
+
+      console.log(`✅ Returning ${providersWithReviews.length} featured providers`);
+
+      res.json({
+        success: true,
+        data: { 
+          providers: providersWithReviews,
+          total: providersWithReviews.length
+        }
+      });
+    } catch (error) {
+      console.error('GuestController - getFeaturedProviders error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to get featured providers'
+      });
+    }
+  }
+
+  /**
+   * Obtener testimonios destacados (reseñas con fotos de trabajos y feedback de plataforma)
+   * Para la sección de testimonios en Home - Incluye tanto clientes como profesionales
+   */
+  async getFeaturedTestimonials(req, res) {
+    try {
+      const { limit = 12 } = req.query;
+      const Review = (await import('../models/Service/Review.js')).default;
+      const ClientReview = (await import('../models/Service/ClientReview.js')).default;
+      const Booking = (await import('../models/Service/Booking.js')).default;
+
+      const lim = Math.min(Math.max(parseInt(limit) || 12, 1), 30);
+
+      // 1. Obtener reseñas de CLIENTES con fotos en la reseña
+      const reviewsWithPhotos = await Review.find({
+        status: 'active',
+        'rating.overall': { $gte: 4 },
+        'review.photos': { $exists: true, $ne: [] }
+      })
+      .sort({ 'rating.overall': -1, createdAt: -1 })
+      .limit(lim)
+      .select({
+        'rating.overall': 1,
+        'review.title': 1,
+        'review.comment': 1,
+        'review.photos': 1,
+        'translations': 1,
+        'originalLanguage': 1,
+        'platformFeedback': 1,
+        'booking': 1,
+        createdAt: 1
+      })
+      .populate('client', 'profile.firstName profile.avatar')
+      .populate('provider', 'providerProfile.businessName providerProfile.services profile.firstName profile.avatar')
+      .lean();
+
+      // 2. Obtener reseñas de CLIENTES con feedback de plataforma
+      const clientPlatformTestimonials = await Review.find({
+        status: 'active',
+        'platformFeedback.rating': { $gte: 4 },
+        'platformFeedback.comment': { $exists: true, $ne: '' }
+      })
+      .sort({ 'platformFeedback.rating': -1, createdAt: -1 })
+      .limit(Math.floor(lim / 2))
+      .select({
+        'rating.overall': 1,
+        'review.title': 1,
+        'review.comment': 1,
+        'review.photos': 1,
+        'translations': 1,
+        'originalLanguage': 1,
+        'platformFeedback': 1,
+        'booking': 1,
+        createdAt: 1
+      })
+      .populate('client', 'profile.firstName profile.avatar')
+      .populate('provider', 'providerProfile.businessName providerProfile.services profile.firstName profile.avatar')
+      .lean();
+
+      // 3. Obtener reseñas de PROFESIONALES (ClientReview) con feedback de plataforma
+      const providerPlatformTestimonials = await ClientReview.find({
+        'platformFeedback.rating': { $gte: 4 },
+        'platformFeedback.comment': { $exists: true, $ne: '' }
+      })
+      .sort({ 'platformFeedback.rating': -1, createdAt: -1 })
+      .limit(Math.floor(lim / 2))
+      .select({
+        'rating.overall': 1,
+        'rating.categories': 1,
+        'comment': 1,
+        'platformFeedback': 1,
+        'translations': 1,
+        'originalLanguage': 1,
+        createdAt: 1
+      })
+      .populate('provider', 'providerProfile.businessName providerProfile.services profile.firstName profile.avatar')
+      .populate('client', 'profile.firstName profile.avatar')
+      .lean();
+
+      // 3.5. Obtener reseñas normales de clientes (sin fotos ni platformFeedback) con alta calificación
+      const regularClientReviews = await Review.find({
+        status: 'active',
+        'rating.overall': { $gte: 4 },
+        'review.comment': { $exists: true, $ne: '' }
+      })
+      .sort({ 'rating.overall': -1, createdAt: -1 })
+      .limit(lim)
+      .select({
+        'rating.overall': 1,
+        'rating.categories': 1,
+        'review.title': 1,
+        'review.comment': 1,
+        'review.photos': 1,
+        'translations': 1,
+        'originalLanguage': 1,
+        'platformFeedback': 1,
+        'booking': 1,
+        createdAt: 1
+      })
+      .populate('client', 'profile.firstName profile.avatar')
+      .populate('provider', 'providerProfile.businessName providerProfile.services profile.firstName profile.avatar')
+      .lean();
+
+      // 4. Obtener bookings con evidencias (fotos del trabajo) que tengan reviews
+      const bookingIds = [...reviewsWithPhotos, ...clientPlatformTestimonials]
+        .map(r => r.booking)
+        .filter(Boolean);
+      
+      const bookingsWithEvidence = await Booking.find({
+        _id: { $in: bookingIds },
+        $or: [
+          { 'serviceEvidence.before.0': { $exists: true } },
+          { 'serviceEvidence.during.0': { $exists: true } },
+          { 'serviceEvidence.after.0': { $exists: true } }
+        ]
+      })
+      .select('_id serviceEvidence')
+      .lean();
+
+      // Crear mapa de evidencias por booking
+      const evidenceMap = new Map();
+      bookingsWithEvidence.forEach(b => {
+        const allPhotos = [
+          ...(b.serviceEvidence?.before || []),
+          ...(b.serviceEvidence?.during || []),
+          ...(b.serviceEvidence?.after || [])
+        ].filter(p => p.url);
+        if (allPhotos.length > 0) {
+          evidenceMap.set(b._id.toString(), allPhotos);
+        }
+      });
+
+      // 5. También buscar reviews sin fotos pero cuyos bookings SÍ tienen evidencias
+      const reviewsWithBookingEvidence = await Review.find({
+        status: 'active',
+        'rating.overall': { $gte: 4 },
+        booking: { $in: Array.from(evidenceMap.keys()).map(id => new mongoose.Types.ObjectId(id)) },
+        $or: [
+          { 'review.photos': { $exists: false } },
+          { 'review.photos': { $size: 0 } }
+        ]
+      })
+      .sort({ 'rating.overall': -1, createdAt: -1 })
+      .limit(Math.floor(lim / 2))
+      .select({
+        'rating.overall': 1,
+        'review.title': 1,
+        'review.comment': 1,
+        'translations': 1,
+        'originalLanguage': 1,
+        'platformFeedback': 1,
+        'booking': 1,
+        createdAt: 1
+      })
+      .populate('client', 'profile.firstName profile.avatar')
+      .populate('provider', 'providerProfile.businessName providerProfile.services profile.firstName profile.avatar')
+      .lean();
+
+      // Combinar y deduplicar todos los testimonios
+      const allTestimonialsMap = new Map();
+      
+      // Agregar reseñas de clientes con fotos en review
+      reviewsWithPhotos.forEach(r => {
+        const bookingEvidence = r.booking ? evidenceMap.get(r.booking.toString()) : null;
+        allTestimonialsMap.set(r._id.toString(), {
+          ...r,
+          userRole: 'client',
+          type: 'work_photo',
+          providerName: r.provider?.providerProfile?.businessName || r.provider?.profile?.firstName || 'Profesional',
+          providerAvatar: r.provider?.profile?.avatar || null,
+          providerServices: r.provider?.providerProfile?.services || [],
+          userName: r.client?.profile?.firstName || 'Cliente',
+          userAvatar: r.client?.profile?.avatar || null,
+          // Combinar fotos de review + evidencias del booking
+          allPhotos: [
+            ...(r.review?.photos || []),
+            ...(bookingEvidence || [])
+          ],
+          hasPlatformFeedback: !!(r.platformFeedback?.rating || r.platformFeedback?.comment)
+        });
+      });
+
+      // Agregar reseñas con evidencias del booking (sin fotos en review)
+      reviewsWithBookingEvidence.forEach(r => {
+        if (allTestimonialsMap.has(r._id.toString())) return;
+        const bookingEvidence = r.booking ? evidenceMap.get(r.booking.toString()) : null;
+        if (!bookingEvidence || bookingEvidence.length === 0) return;
+        
+        allTestimonialsMap.set(r._id.toString(), {
+          ...r,
+          userRole: 'client',
+          type: 'work_photo',
+          providerName: r.provider?.providerProfile?.businessName || r.provider?.profile?.firstName || 'Profesional',
+          providerAvatar: r.provider?.profile?.avatar || null,
+          providerServices: r.provider?.providerProfile?.services || [],
+          userName: r.client?.profile?.firstName || 'Cliente',
+          userAvatar: r.client?.profile?.avatar || null,
+          allPhotos: bookingEvidence,
+          hasPlatformFeedback: !!(r.platformFeedback?.rating || r.platformFeedback?.comment)
+        });
+      });
+
+      // Agregar testimonios de plataforma de clientes
+      clientPlatformTestimonials.forEach(r => {
+        const existing = allTestimonialsMap.get(r._id.toString());
+        if (existing) {
+          existing.hasPlatformFeedback = true;
+        } else {
+          const bookingEvidence = r.booking ? evidenceMap.get(r.booking.toString()) : null;
+          allTestimonialsMap.set(r._id.toString(), {
+            ...r,
+            userRole: 'client',
+            type: 'platform_feedback',
+            providerName: r.provider?.providerProfile?.businessName || r.provider?.profile?.firstName || 'Profesional',
+            providerAvatar: r.provider?.profile?.avatar || null,
+            providerServices: r.provider?.providerProfile?.services || [],
+            userName: r.client?.profile?.firstName || 'Cliente',
+            userAvatar: r.client?.profile?.avatar || null,
+            allPhotos: [
+              ...(r.review?.photos || []),
+              ...(bookingEvidence || [])
+            ],
+            hasPlatformFeedback: true
+          });
+        }
+      });
+
+      // Agregar testimonios de plataforma de PROFESIONALES
+      providerPlatformTestimonials.forEach(r => {
+        // Usar ID diferente para evitar colisiones con reviews normales
+        const uniqueId = `provider_${r._id.toString()}`;
+        allTestimonialsMap.set(uniqueId, {
+          _id: r._id,
+          userRole: 'provider',
+          type: 'platform_feedback',
+          rating: r.rating,
+          review: { comment: r.comment },
+          translations: r.translations,
+          originalLanguage: r.originalLanguage,
+          platformFeedback: r.platformFeedback,
+          createdAt: r.createdAt,
+          // Para profesionales, el "userName" es el profesional
+          userName: r.provider?.providerProfile?.businessName || r.provider?.profile?.firstName || 'Profesional',
+          userAvatar: r.provider?.profile?.avatar || null,
+          providerServices: r.provider?.providerProfile?.services || [],
+          // Info del cliente que atendió
+          clientName: r.client?.profile?.firstName || 'Cliente',
+          clientAvatar: r.client?.profile?.avatar || null,
+          allPhotos: [],
+          hasPlatformFeedback: true
+        });
+      });
+
+      // Agregar reseñas regulares de clientes (sin fotos ni platformFeedback pero con buen rating)
+      regularClientReviews.forEach(r => {
+        if (allTestimonialsMap.has(r._id.toString())) return; // Evitar duplicados
+        const bookingEvidence = r.booking ? evidenceMap.get(r.booking.toString()) : null;
+        allTestimonialsMap.set(r._id.toString(), {
+          ...r,
+          userRole: 'client',
+          type: 'service_review',
+          providerName: r.provider?.providerProfile?.businessName || r.provider?.profile?.firstName || 'Profesional',
+          providerAvatar: r.provider?.profile?.avatar || null,
+          providerServices: r.provider?.providerProfile?.services || [],
+          userName: r.client?.profile?.firstName || 'Cliente',
+          userAvatar: r.client?.profile?.avatar || null,
+          allPhotos: [
+            ...(r.review?.photos || []),
+            ...(bookingEvidence || [])
+          ],
+          hasPlatformFeedback: !!(r.platformFeedback?.rating || r.platformFeedback?.comment)
+        });
+      });
+
+      const testimonials = Array.from(allTestimonialsMap.values())
+        .sort((a, b) => {
+          // Priorizar los que tienen fotos
+          if (a.allPhotos?.length && !b.allPhotos?.length) return -1;
+          if (!a.allPhotos?.length && b.allPhotos?.length) return 1;
+          // Priorizar los que tienen platformFeedback
+          if (a.hasPlatformFeedback && !b.hasPlatformFeedback) return -1;
+          if (!a.hasPlatformFeedback && b.hasPlatformFeedback) return 1;
+          // Luego por rating
+          return (b.rating?.overall || b.platformFeedback?.rating || 0) - (a.rating?.overall || a.platformFeedback?.rating || 0);
+        })
+        .slice(0, lim);
+
+      // Extraer fotos para la galería
+      const workPhotos = [];
+      testimonials.forEach(t => {
+        if (t.allPhotos?.length) {
+          t.allPhotos.slice(0, 4).forEach(photo => {
+            workPhotos.push({
+              url: photo.url,
+              cloudinaryId: photo.cloudinaryId,
+              reviewId: t._id,
+              rating: t.rating?.overall || t.platformFeedback?.rating,
+              providerName: t.userRole === 'client' ? t.providerName : t.userName,
+              userName: t.userName,
+              userRole: t.userRole,
+              category: t.providerServices?.[0]?.category || 'Otro'
+            });
+          });
+        }
+      });
+
+      console.log(`✅ Returning ${testimonials.length} testimonials (clients + providers) with ${workPhotos.length} work photos`);
+
+      res.json({
+        success: true,
+        data: { 
+          testimonials,
+          workPhotos: workPhotos.slice(0, 20),
+          total: testimonials.length
+        }
+      });
+    } catch (error) {
+      console.error('GuestController - getFeaturedTestimonials error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to get testimonials'
       });
     }
   }

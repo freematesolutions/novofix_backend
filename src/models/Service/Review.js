@@ -93,6 +93,16 @@ const reviewSchema = new mongoose.Schema({
     notHelpful: { type: Number, default: 0 },
     reported: { type: Number, default: 0 }
   },
+  // Feedback opcional sobre la plataforma NovoFix
+  platformFeedback: {
+    rating: { type: Number, min: 1, max: 5 },
+    comment: String,
+    wouldRecommend: Boolean,
+    translations: {
+      es: { comment: String },
+      en: { comment: String }
+    }
+  },
   metadata: {
     verifiedPurchase: { type: Boolean, default: true },
     editHistory: [{
@@ -110,5 +120,9 @@ reviewSchema.index({ provider: 1, createdAt: -1 });
 reviewSchema.index({ 'rating.overall': -1 });
 reviewSchema.index({ booking: 1 }, { unique: true });
 reviewSchema.index({ client: 1, provider: 1 });
+// Índice para reviews con fotos (para la sección de testimonios)
+reviewSchema.index({ 'review.photos': 1, status: 1, 'rating.overall': -1 });
+// Índice para feedback de plataforma
+reviewSchema.index({ 'platformFeedback.rating': -1 });
 
 export default mongoose.model('Review', reviewSchema);

@@ -1,5 +1,6 @@
 // controllers/reviewController.js
 import Review from '../models/Service/Review.js';
+import ClientReview from '../models/Service/ClientReview.js';
 import Booking from '../models/Service/Booking.js';
 import Provider from '../models/User/Provider.js';
 import scoringService from '../services/internal/scoringService.js';
@@ -24,11 +25,12 @@ class ReviewController {
   }
   /**
    * Crear review para un servicio completado
+   * Incluye calificación del profesional y opcionalmente feedback sobre la plataforma
    */
   async createReview(req, res) {
     try {
       const { bookingId } = req.params;
-      const { overall, categories, title, comment, photos } = req.body;
+      const { overall, categories, title, comment, photos, platformFeedback } = req.body;
 
       // Verificar que el booking existe y pertenece al cliente
       const booking = await Booking.findOne({
@@ -53,18 +55,21 @@ class ReviewController {
         });
       }
 
-      const review = new Review({
+      // Usar el overall como fallback para categorías no proporcionadas
+      const safeCategories = categories || {};
+      
+      const reviewData = {
         booking: bookingId,
         client: req.user._id,
         provider: booking.provider._id,
         rating: {
           overall,
           categories: {
-            professionalism: categories.professionalism,
-            quality: categories.quality,
-            punctuality: categories.punctuality,
-            communication: categories.communication,
-            value: categories.value || overall
+            professionalism: safeCategories.professionalism || overall,
+            quality: safeCategories.quality || overall,
+            punctuality: safeCategories.punctuality || overall,
+            communication: safeCategories.communication || overall,
+            value: safeCategories.value || overall
           }
         },
         review: {
@@ -73,7 +78,34 @@ class ReviewController {
           photos: photos || []
         },
         status: 'active'
-      });
+      };
+
+      // Agregar feedback de plataforma si fue proporcionado
+      if (platformFeedback && (platformFeedback.rating || platformFeedback.comment)) {
+        reviewData.platformFeedback = {
+          rating: platformFeedback.rating || null,
+          comment: platformFeedback.comment || '',
+          wouldRecommend: platformFeedback.wouldRecommend ?? true
+        };
+
+        // Traducir comentario de platformFeedback si existe
+        if (platformFeedback.comment) {
+          try {
+            const pfOriginalLang = translationService.detectLanguage(platformFeedback.comment);
+            const pfTranslations = await translationService.generateTranslations(
+              { comment: platformFeedback.comment },
+              pfOriginalLang
+            );
+            if (pfTranslations) {
+              reviewData.platformFeedback.translations = pfTranslations;
+            }
+          } catch (pfTranslationError) {
+            console.warn('[ReviewController] Platform feedback translation failed:', pfTranslationError.message);
+          }
+        }
+      }
+
+      const review = new Review(reviewData);
 
       // Generar traducciones del título y comentario ANTES de guardar
       try {
@@ -522,13 +554,17 @@ class ReviewController {
       const overallSum = reviews.reduce((sum, review) => sum + review.rating.overall, 0);
       const overallAvg = overallSum / reviews.length;
 
-      // Calcular promedios por categoría
+      // Calcular promedios por categoría (usar overall como fallback si la categoría es 0)
       const categories = ['professionalism', 'quality', 'punctuality', 'communication', 'value'];
       const categoryAverages = {};
 
       categories.forEach(category => {
-        const sum = reviews.reduce((sum, review) => sum + (review.rating.categories[category] || 0), 0);
-        categoryAverages[category] = sum / reviews.length;
+        const sum = reviews.reduce((sum, review) => {
+          // Si la categoría es 0 o undefined, usar el overall como fallback
+          const categoryValue = review.rating.categories?.[category] || review.rating.overall;
+          return sum + categoryValue;
+        }, 0);
+        categoryAverages[category] = Math.round((sum / reviews.length) * 10) / 10;
       });
 
       await Provider.findByIdAndUpdate(providerId, {
@@ -646,6 +682,221 @@ class ReviewController {
       res.status(500).json({
         success: false,
         message: 'Failed to record vote'
+      });
+    }
+  }
+
+  /**
+   * Proveedor califica al cliente después de un servicio completado
+   * Incluye opcionalmente feedback sobre la plataforma NovoFix
+   */
+  async createClientReview(req, res) {
+    try {
+      const { bookingId } = req.params;
+      const { overall, categories, comment, platformFeedback } = req.body;
+
+      // Verificar que el booking existe y pertenece al proveedor
+      const booking = await Booking.findOne({
+        _id: bookingId,
+        provider: req.user._id,
+        status: 'completed'
+      }).populate('client');
+
+      if (!booking) {
+        return res.status(404).json({
+          success: false,
+          message: 'Booking not found or not authorized'
+        });
+      }
+
+      // Verificar que no existe ya una client review para este booking
+      const existingReview = await ClientReview.findOne({ booking: bookingId });
+      if (existingReview) {
+        return res.status(400).json({
+          success: false,
+          message: 'Client review already exists for this booking'
+        });
+      }
+
+      // Usar el overall como fallback para categorías no proporcionadas
+      const safeCategories = categories || {};
+      
+      const reviewData = {
+        booking: bookingId,
+        provider: req.user._id,
+        client: booking.client._id,
+        rating: {
+          overall,
+          categories: {
+            communication: safeCategories.communication || overall,
+            punctuality: safeCategories.punctuality || overall,
+            respect: safeCategories.respect || overall,
+            clarity: safeCategories.clarity || overall,
+            payment: safeCategories.payment || overall
+          }
+        },
+        review: {
+          comment: comment || ''
+        },
+        status: 'active'
+      };
+
+      // Agregar feedback de plataforma si fue proporcionado
+      if (platformFeedback && (platformFeedback.rating || platformFeedback.comment)) {
+        const safeAspects = platformFeedback.aspects || {};
+        reviewData.platformFeedback = {
+          rating: platformFeedback.rating || null,
+          comment: platformFeedback.comment || '',
+          wouldRecommend: platformFeedback.wouldRecommend ?? true,
+          aspects: {
+            easeOfUse: safeAspects.easeOfUse || platformFeedback.rating || null,
+            clientQuality: safeAspects.clientQuality || platformFeedback.rating || null,
+            paymentProcess: safeAspects.paymentProcess || platformFeedback.rating || null,
+            support: safeAspects.support || platformFeedback.rating || null
+          }
+        };
+
+        // Traducir comentario de platformFeedback si existe
+        if (platformFeedback.comment) {
+          try {
+            const pfOriginalLang = translationService.detectLanguage(platformFeedback.comment);
+            const pfTranslations = await translationService.generateTranslations(
+              { comment: platformFeedback.comment },
+              pfOriginalLang
+            );
+            if (pfTranslations) {
+              reviewData.platformFeedback.translations = pfTranslations;
+            }
+          } catch (pfTranslationError) {
+            console.warn('[ReviewController] Platform feedback translation failed:', pfTranslationError.message);
+          }
+        }
+      }
+
+      const clientReview = new ClientReview(reviewData);
+
+      // Generar traducciones del comentario ANTES de guardar
+      if (comment) {
+        try {
+          const originalLang = translationService.detectLanguage(comment);
+          const translations = await translationService.generateTranslations(
+            { comment },
+            originalLang
+          );
+          if (translations) {
+            clientReview.translations = translations;
+            clientReview.originalLanguage = originalLang;
+          }
+        } catch (translationError) {
+          console.warn('[ReviewController] Client review translation failed:', translationError.message);
+        }
+      }
+
+      await clientReview.save();
+
+      // Actualizar rating del cliente (si tenemos esa funcionalidad)
+      await this.updateClientRating(booking.client._id);
+
+      // Notificar al cliente
+      try {
+        const notificationService = (await import('../services/external/notificationService.js')).default;
+        await notificationService.sendClientNotification({
+          clientId: booking.client._id,
+          type: 'NEW_CLIENT_REVIEW',
+          data: {
+            reviewId: clientReview._id,
+            rating: overall,
+            providerName: req.user.providerProfile?.businessName || req.user.profile?.firstName
+          }
+        });
+      } catch (notifError) {
+        console.warn('[ReviewController] Client notification failed:', notifError.message);
+      }
+
+      res.status(201).json({
+        success: true,
+        message: 'Client review created successfully',
+        data: { review: clientReview }
+      });
+    } catch (error) {
+      console.error('ReviewController - createClientReview error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to create client review'
+      });
+    }
+  }
+
+  /**
+   * Actualizar rating promedio de un cliente
+   */
+  async updateClientRating(clientId) {
+    try {
+      const Client = (await import('../models/User/Client.js')).default;
+      
+      const reviews = await ClientReview.find({
+        client: clientId,
+        status: 'active'
+      });
+
+      if (reviews.length === 0) return;
+
+      const avgRating = reviews.reduce((sum, r) => sum + r.rating.overall, 0) / reviews.length;
+      
+      await Client.findByIdAndUpdate(clientId, {
+        'clientProfile.rating': {
+          average: Math.round(avgRating * 10) / 10,
+          count: reviews.length
+        }
+      });
+    } catch (error) {
+      console.warn('[ReviewController] Failed to update client rating:', error.message);
+    }
+  }
+
+  /**
+   * Obtener reseña del cliente para un booking (proveedor)
+   */
+  async getClientReviewByBooking(req, res) {
+    try {
+      const { bookingId } = req.params;
+      
+      const review = await ClientReview.findOne({ booking: bookingId })
+        .populate('client', 'profile.firstName profile.avatar')
+        .populate('provider', 'providerProfile.businessName profile.firstName')
+        .lean();
+
+      res.json({
+        success: true,
+        data: { review }
+      });
+    } catch (error) {
+      console.error('ReviewController - getClientReviewByBooking error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to get client review'
+      });
+    }
+  }
+
+  /**
+   * Verificar si el proveedor ya calificó al cliente
+   */
+  async checkClientReviewExists(req, res) {
+    try {
+      const { bookingId } = req.params;
+      
+      const exists = await ClientReview.exists({ booking: bookingId });
+
+      res.json({
+        success: true,
+        data: { exists: !!exists }
+      });
+    } catch (error) {
+      console.error('ReviewController - checkClientReviewExists error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to check client review'
       });
     }
   }

@@ -9,6 +9,8 @@ const router = express.Router();
 // Rutas públicas (sin sesión)
 router.get('/services/active', guestController.getActiveServices);
 router.get('/providers/search', guestController.searchProvidersPublic);
+router.get('/providers/featured', guestController.getFeaturedProviders);
+router.get('/testimonials/featured', guestController.getFeaturedTestimonials);
 
 // Todas las rutas siguientes requieren sesión
 router.use(ensureSession);

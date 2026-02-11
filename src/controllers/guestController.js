@@ -747,6 +747,10 @@ class GuestController {
       // Total de proveedores únicos
       const totalUniqueProviders = providers.length;
 
+      // Contar clientes activos para las estadísticas del hero
+      const totalClients = await Client.countDocuments({ isActive: true });
+      console.log(`👥 Found ${totalClients} active clients`);
+
       // Contar proveedores por categoría (incluir todos, incluso sin suscripción activa por ahora)
       const categoryCounts = {};
       providers.forEach(p => {
@@ -771,13 +775,14 @@ class GuestController {
         }))
         .sort((a, b) => b.providerCount - a.providerCount); // Ordenar por cantidad de proveedores
 
-      console.log(`✅ Returning ${services.length} active service categories with ${totalUniqueProviders} unique providers`);
+      console.log(`✅ Returning ${services.length} active service categories with ${totalUniqueProviders} unique providers and ${totalClients} clients`);
 
       res.json({
         success: true,
         data: { 
           services,
-          totalUniqueProviders 
+          totalUniqueProviders,
+          totalClients
         }
       });
     } catch (error) {

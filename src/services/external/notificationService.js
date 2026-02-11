@@ -366,6 +366,59 @@ class NotificationService {
             requestId: extra?.requestId || ''
           }
         };
+      case 'BOOKING_STATUS_UPDATE':
+        return {
+          ...base,
+          subject: 'Actualización de reserva',
+          message: extra?.providerName 
+            ? `${extra.providerName} ha actualizado el estado de tu reserva a: ${extra.status || 'actualizado'}`
+            : 'El estado de tu reserva ha sido actualizado.',
+          actionUrl: '/reservas',
+          priority: 'medium',
+          extraData: { 
+            providerName: extra?.providerName || '', 
+            status: extra?.status || '',
+            notes: extra?.notes || ''
+          }
+        };
+      case 'PAYMENT_REQUIRED':
+        return {
+          ...base,
+          subject: 'Pago pendiente 💳',
+          message: extra?.message || 'Se requiere pago para tu reserva.',
+          actionUrl: '/pagos',
+          priority: 'high',
+          extraData: { amount: extra?.amount || '' }
+        };
+      case 'PAYMENT_RECEIVED':
+        return {
+          ...base,
+          subject: 'Pago recibido ✅',
+          message: extra?.amount ? `Has recibido un pago de $${extra.amount}.` : 'Has recibido un pago.',
+          actionUrl: '/pagos',
+          priority: 'medium',
+          extraData: { amount: extra?.amount || '' }
+        };
+      case 'REVIEW_REQUEST':
+        return {
+          ...base,
+          subject: '¡Califica tu experiencia! ⭐',
+          message: 'Tu servicio ha sido completado. Déjanos saber cómo fue tu experiencia.',
+          actionUrl: '/reservas',
+          priority: 'medium',
+          extraData: { bookingId: extra?.bookingId || '' }
+        };
+      case 'NEW_MESSAGE':
+        return {
+          ...base,
+          subject: 'Nuevo mensaje 💬',
+          message: extra?.senderName 
+            ? `${extra.senderName} te ha enviado un mensaje.`
+            : 'Tienes un nuevo mensaje.',
+          actionUrl: extra?.chatId ? `/mensajes?chat=${extra.chatId}` : '/mensajes',
+          priority: 'medium',
+          extraData: { senderName: extra?.senderName || '', chatId: extra?.chatId || '' }
+        };
       default:
         return {
           ...base,

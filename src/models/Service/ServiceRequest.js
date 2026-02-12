@@ -47,18 +47,19 @@ const serviceRequestSchema = new mongoose.Schema({
       required: true
     }
   },
+  // Location es ahora opcional para servicios remotos (diseño, traducción, etc.)
   location: {
     address: {
       type: String,
-      required: true
+      required: false  // Ya no es obligatorio
     },
     city: String,
     state: String,
     zipCode: String,
     // Convenience numeric coordinates (not used for geo queries)
     coordinates: {
-      lat: { type: Number, required: true },
-      lng: { type: Number, required: true }
+      lat: { type: Number, required: false },  // Ya no es obligatorio
+      lng: { type: Number, required: false }   // Ya no es obligatorio
     },
     // GeoJSON point for geospatial queries ($near, etc.)
     location: {

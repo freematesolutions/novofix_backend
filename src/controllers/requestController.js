@@ -54,9 +54,25 @@ class RequestController {
       }
 
       let initialStatus = saveAsDraft ? 'draft' : 'published';
-      const point = (coordinates && Number.isFinite(coordinates.lng) && Number.isFinite(coordinates.lat))
+      
+      // Construir ubicación solo si hay datos válidos
+      const hasValidLocation = address && coordinates && 
+                               Number.isFinite(coordinates.lng) && 
+                               Number.isFinite(coordinates.lat);
+      
+      const point = hasValidLocation
         ? { type: 'Point', coordinates: [Number(coordinates.lng), Number(coordinates.lat)] }
         : undefined;
+
+      // Location object - solo incluir si hay datos
+      const locationData = hasValidLocation ? {
+        address,
+        coordinates: {
+          lat: Number(coordinates.lat),
+          lng: Number(coordinates.lng)
+        },
+        location: point
+      } : undefined;
 
       const serviceRequest = new ServiceRequest({
         client: clientId,
@@ -68,14 +84,7 @@ class RequestController {
           subcategory,
           urgency
         },
-        location: {
-          address,
-          coordinates: {
-            lat: Number(coordinates?.lat),
-            lng: Number(coordinates?.lng)
-          },
-          location: point
-        },
+        location: locationData,
         scheduling: {
           preferredDate: preferredDate ? new Date(preferredDate) : null,
           preferredTime,

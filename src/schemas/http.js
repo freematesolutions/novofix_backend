@@ -15,11 +15,12 @@ export const createServiceRequestSchema = Joi.object({
   category: Joi.string().valid(...categories).required(),
   subcategory: Joi.string().allow('', null),
   urgency: Joi.string().valid(...urgencies).required(),
-  address: Joi.string().min(3).max(300).required(),
+  // Ubicación ahora es opcional para servicios remotos
+  address: Joi.string().min(3).max(300).allow('', null),
   coordinates: Joi.object({
     lat: Joi.number().min(-90).max(90).required(),
     lng: Joi.number().min(-180).max(180).required()
-  }).required(),
+  }).allow(null),
   preferredDate: Joi.alternatives().try(Joi.date().iso(), Joi.string().isoDate()).allow(null, ''),
   preferredTime: Joi.string().allow('', null),
   flexibility: Joi.string().valid('strict','flexible','very_flexible').allow(null),

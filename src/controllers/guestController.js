@@ -406,6 +406,14 @@ class GuestController {
   /**
    * Obtener testimonios destacados (reseñas con fotos de trabajos y feedback de plataforma)
    * Para la sección de testimonios en Home - Incluye tanto clientes como profesionales
+   * 
+   * GALERÍA DE TRABAJOS REALIZADOS:
+   * - Fotos de reseñas de clientes
+   * - Fotos de reseñas de profesionales  
+   * - Portafolio de profesionales destacados
+   * - Evidencias de trabajos completados (before/during/after)
+   * 
+   * Ordenados por: rating → plan (pro>basic>free) → calificación
    */
   async getFeaturedTestimonials(req, res) {
     try {
@@ -413,6 +421,7 @@ class GuestController {
       const Review = (await import('../models/Service/Review.js')).default;
       const ClientReview = (await import('../models/Service/ClientReview.js')).default;
       const Booking = (await import('../models/Service/Booking.js')).default;
+      const Provider = (await import('../models/User/Provider.js')).default;
 
       const lim = Math.min(Math.max(parseInt(limit) || 12, 1), 30);
 
@@ -690,32 +699,218 @@ class GuestController {
         })
         .slice(0, lim);
 
-      // Extraer fotos para la galería
-      const workPhotos = [];
+      // =====================================================
+      // GALERÍA DE TRABAJOS REALIZADOS - FUENTES MÚLTIPLES
+      // =====================================================
+      
+      // Mapeo de prioridad de planes para ordenamiento
+      const planPriority = { pro: 3, basic: 2, free: 1 };
+      
+      // Array para almacenar todos los archivos de trabajo
+      const allWorkMedia = [];
+
+      // 1. FOTOS DE RESEÑAS DE CLIENTES (source: 'client_review')
       testimonials.forEach(t => {
-        if (t.allPhotos?.length) {
+        if (t.allPhotos?.length && t.userRole === 'client') {
           t.allPhotos.slice(0, 4).forEach(photo => {
-            workPhotos.push({
+            allWorkMedia.push({
               url: photo.url,
               cloudinaryId: photo.cloudinaryId,
+              type: photo.type || 'image', // Para detectar videos
+              source: 'client_review',
+              sourceLabel: { es: 'Reseña de cliente', en: 'Client review' },
               reviewId: t._id,
-              rating: t.rating?.overall || t.platformFeedback?.rating,
-              providerName: t.userRole === 'client' ? t.providerName : t.userName,
+              rating: t.rating?.overall || t.platformFeedback?.rating || 0,
+              providerName: t.providerName,
+              providerAvatar: t.providerAvatar,
+              providerId: t.provider?._id,
+              providerPlan: 'free', // Las reseñas no tienen plan directo
               userName: t.userName,
+              userAvatar: t.userAvatar,
               userRole: t.userRole,
-              category: t.providerServices?.[0]?.category || 'Otro'
+              category: t.providerServices?.[0]?.category || 'Otro',
+              caption: photo.description || null,
+              createdAt: t.createdAt
             });
           });
         }
       });
 
-      console.log(`✅ Returning ${testimonials.length} testimonials (clients + providers) with ${workPhotos.length} work photos`);
+      // 2. FOTOS DE RESEÑAS DE PROFESIONALES (source: 'provider_review')
+      testimonials.forEach(t => {
+        if (t.allPhotos?.length && t.userRole === 'provider') {
+          t.allPhotos.slice(0, 4).forEach(photo => {
+            allWorkMedia.push({
+              url: photo.url,
+              cloudinaryId: photo.cloudinaryId,
+              type: photo.type || 'image',
+              source: 'provider_review',
+              sourceLabel: { es: 'Reseña de profesional', en: 'Professional review' },
+              reviewId: t._id,
+              rating: t.rating?.overall || t.platformFeedback?.rating || 0,
+              providerName: t.userName,
+              providerAvatar: t.userAvatar,
+              providerId: t.provider?._id,
+              providerPlan: 'free',
+              userName: t.clientName,
+              userAvatar: t.clientAvatar,
+              userRole: t.userRole,
+              category: t.providerServices?.[0]?.category || 'Otro',
+              caption: photo.description || null,
+              createdAt: t.createdAt
+            });
+          });
+        }
+      });
+
+      // 3. PORTAFOLIO DE PROFESIONALES DESTACADOS (source: 'portfolio')
+      const providersWithPortfolio = await Provider.find({
+        isActive: true,
+        'providerProfile.portfolio.0': { $exists: true },
+        'providerProfile.rating.average': { $gte: 4 }
+      })
+      .sort({ 
+        'subscription.plan': -1, 
+        'providerProfile.rating.average': -1,
+        'score.total': -1 
+      })
+      .limit(20)
+      .select({
+        'profile.firstName': 1,
+        'profile.avatar': 1,
+        'providerProfile.businessName': 1,
+        'providerProfile.portfolio': 1,
+        'providerProfile.services': 1,
+        'providerProfile.rating': 1,
+        'subscription.plan': 1,
+        'score.total': 1
+      })
+      .lean();
+
+      providersWithPortfolio.forEach(provider => {
+        const portfolio = provider.providerProfile?.portfolio || [];
+        const plan = provider.subscription?.plan || 'free';
+        const rating = provider.providerProfile?.rating?.average || 0;
+        
+        portfolio.slice(0, 6).forEach(item => {
+          allWorkMedia.push({
+            url: item.url,
+            cloudinaryId: item.cloudinaryId,
+            type: item.type || 'image',
+            source: 'portfolio',
+            sourceLabel: { es: 'Portafolio del profesional', en: 'Professional portfolio' },
+            reviewId: null,
+            rating: rating,
+            providerName: provider.providerProfile?.businessName || provider.profile?.firstName || 'Profesional',
+            providerAvatar: provider.profile?.avatar || null,
+            providerId: provider._id,
+            providerPlan: plan,
+            userName: null,
+            userAvatar: null,
+            userRole: 'provider',
+            category: item.category || provider.providerProfile?.services?.[0]?.category || 'Otro',
+            caption: item.caption || null,
+            createdAt: item.uploadedAt || new Date()
+          });
+        });
+      });
+
+      // 4. EVIDENCIAS DE TRABAJOS COMPLETADOS (source: 'service_evidence')
+      const completedBookingsWithEvidence = await Booking.find({
+        status: 'completed',
+        $or: [
+          { 'serviceEvidence.before.0': { $exists: true } },
+          { 'serviceEvidence.during.0': { $exists: true } },
+          { 'serviceEvidence.after.0': { $exists: true } }
+        ]
+      })
+      .sort({ createdAt: -1 })
+      .limit(30)
+      .select({
+        'serviceEvidence': 1,
+        'provider': 1,
+        'createdAt': 1
+      })
+      .populate('provider', 'profile.firstName profile.avatar providerProfile.businessName providerProfile.services providerProfile.rating subscription.plan')
+      .lean();
+
+      completedBookingsWithEvidence.forEach(booking => {
+        const provider = booking.provider;
+        if (!provider) return;
+        
+        const plan = provider.subscription?.plan || 'free';
+        const rating = provider.providerProfile?.rating?.average || 0;
+        const allEvidence = [
+          ...(booking.serviceEvidence?.before || []).map(e => ({ ...e, phase: 'before' })),
+          ...(booking.serviceEvidence?.during || []).map(e => ({ ...e, phase: 'during' })),
+          ...(booking.serviceEvidence?.after || []).map(e => ({ ...e, phase: 'after' }))
+        ].filter(e => e.url);
+
+        allEvidence.slice(0, 4).forEach(evidence => {
+          allWorkMedia.push({
+            url: evidence.url,
+            cloudinaryId: evidence.cloudinaryId,
+            type: evidence.url?.includes('/video/') ? 'video' : 'image',
+            source: 'service_evidence',
+            sourceLabel: { es: 'Evidencia del trabajo', en: 'Work evidence' },
+            evidencePhase: evidence.phase,
+            reviewId: null,
+            rating: rating,
+            providerName: provider.providerProfile?.businessName || provider.profile?.firstName || 'Profesional',
+            providerAvatar: provider.profile?.avatar || null,
+            providerId: provider._id,
+            providerPlan: plan,
+            userName: null,
+            userAvatar: null,
+            userRole: 'provider',
+            category: provider.providerProfile?.services?.[0]?.category || 'Otro',
+            caption: evidence.description || null,
+            createdAt: evidence.uploadedAt || booking.createdAt
+          });
+        });
+      });
+
+      // ORDENAR TODOS LOS ARCHIVOS: rating → plan (pro>basic>free) → fecha
+      allWorkMedia.sort((a, b) => {
+        // 1. Por rating (mayor primero)
+        const ratingDiff = (b.rating || 0) - (a.rating || 0);
+        if (ratingDiff !== 0) return ratingDiff;
+        
+        // 2. Por plan (pro > basic > free)
+        const planDiff = (planPriority[b.providerPlan] || 1) - (planPriority[a.providerPlan] || 1);
+        if (planDiff !== 0) return planDiff;
+        
+        // 3. Por fecha (más reciente primero)
+        return new Date(b.createdAt) - new Date(a.createdAt);
+      });
+
+      // Deduplicar por URL
+      const seenUrls = new Set();
+      const uniqueWorkMedia = allWorkMedia.filter(item => {
+        if (seenUrls.has(item.url)) return false;
+        seenUrls.add(item.url);
+        return true;
+      });
+
+      // Mantener compatibilidad con formato anterior para workPhotos
+      const workPhotos = uniqueWorkMedia.slice(0, 40).map(item => ({
+        ...item,
+        // Campos legacy para compatibilidad
+        reviewId: item.reviewId,
+        rating: item.rating,
+        providerName: item.providerName,
+        userName: item.userName,
+        userRole: item.userRole,
+        category: item.category
+      }));
+
+      console.log(`✅ Returning ${testimonials.length} testimonials with ${workPhotos.length} work media (reviews: ${allWorkMedia.filter(m => m.source.includes('review')).length}, portfolio: ${allWorkMedia.filter(m => m.source === 'portfolio').length}, evidence: ${allWorkMedia.filter(m => m.source === 'service_evidence').length})`);
 
       res.json({
         success: true,
         data: { 
           testimonials,
-          workPhotos: workPhotos.slice(0, 20),
+          workPhotos,
           total: testimonials.length
         }
       });
@@ -976,6 +1171,82 @@ class GuestController {
       res.status(500).json({
         success: false,
         message: 'Failed to migrate guest data'
+      });
+    }
+  }
+
+  /**
+   * Obtener perfil público de un proveedor por ID
+   * Incluye portafolio completo para mostrar en modal de perfil
+   */
+  async getProviderById(req, res) {
+    try {
+      const { providerId } = req.params;
+      const Provider = (await import('../models/User/Provider.js')).default;
+      const Review = (await import('../models/Service/Review.js')).default;
+
+      const provider = await Provider.findById(providerId)
+        .select({
+          email: 1,
+          'profile.firstName': 1,
+          'profile.avatar': 1,
+          'providerProfile.businessName': 1,
+          'providerProfile.description': 1,
+          'providerProfile.businessDescription': 1,
+          'providerProfile.rating.average': 1,
+          'providerProfile.rating.count': 1,
+          'providerProfile.rating.breakdown': 1,
+          'providerProfile.services': 1,
+          'providerProfile.portfolio': 1,
+          'providerProfile.stats': 1,
+          'providerProfile.serviceArea.address': 1,
+          'providerProfile.serviceArea.zones': 1,
+          'subscription.plan': 1,
+          'subscription.status': 1,
+          createdAt: 1
+        })
+        .lean();
+
+      if (!provider) {
+        return res.status(404).json({
+          success: false,
+          message: 'Provider not found'
+        });
+      }
+
+      // Obtener reseñas recientes del proveedor
+      const reviews = await Review.find({
+        provider: providerId,
+        status: 'active'
+      })
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .select({
+        'rating.overall': 1,
+        'rating.categories': 1,
+        'review.comment': 1,
+        'review.title': 1,
+        'translations': 1,
+        'originalLanguage': 1,
+        createdAt: 1
+      })
+      .populate('client', 'profile.firstName profile.avatar')
+      .lean();
+
+      res.json({
+        success: true,
+        data: {
+          provider: {
+            ...provider,
+            recentReviews: reviews
+          }
+        }
+      });
+    } catch (error) {
+      console.error('GuestController - getProviderById error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to get provider profile'
       });
     }
   }

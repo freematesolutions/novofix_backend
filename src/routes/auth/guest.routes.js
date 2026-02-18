@@ -10,6 +10,7 @@ const router = express.Router();
 router.get('/services/active', guestController.getActiveServices);
 router.get('/providers/search', guestController.searchProvidersPublic);
 router.get('/providers/featured', guestController.getFeaturedProviders);
+router.get('/providers/:providerId', guestController.getProviderById);
 router.get('/testimonials/featured', guestController.getFeaturedTestimonials);
 
 // Todas las rutas siguientes requieren sesión

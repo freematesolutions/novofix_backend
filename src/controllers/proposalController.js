@@ -202,6 +202,61 @@ class ProposalController {
       if (proposal.status !== 'draft') return res.status(400).json({ success: false, message: 'Only drafts can be sent' });
       // Suscripción y límite ya verificados por middlewares requireActiveSubscription & checkLeadLimit (en rutas)
 
+      const serviceRequest = proposal.serviceRequest;
+      if (!serviceRequest || serviceRequest.status !== 'published') {
+        return res.status(404).json({ success: false, message: 'Service request not found or not available' });
+      }
+
+      // Verificar elegibilidad del proveedor (mismo flujo que sendProposal para evitar race condition)
+      const isInEligibleList = (serviceRequest.eligibleProviders || []).some(
+        ep => ep.provider.toString() === req.user._id.toString()
+      );
+
+      if (serviceRequest.visibility === 'directed') {
+        const isSelected = (serviceRequest.selectedProviders || []).some(
+          id => id.toString() === req.user._id.toString()
+        );
+        if (!isSelected && !isInEligibleList) {
+          return res.status(403).json({
+            success: false,
+            message: 'Provider not selected for this directed request'
+          });
+        }
+      } else if (!isInEligibleList) {
+        // Verificación en tiempo real para solicitudes automáticas (solución race condition)
+        const Provider = (await import('../models/User/Provider.js')).default;
+        const provider = await Provider.findById(req.user._id);
+        if (!provider) {
+          return res.status(404).json({ success: false, message: 'Provider not found' });
+        }
+
+        const providerCategories = (provider.providerProfile?.services || []).map(s => s.category);
+        const requestCategory = serviceRequest.basicInfo?.category;
+        const categoryMatch = providerCategories.includes(requestCategory);
+        const hasActiveSubscription = provider.subscription?.status === 'active';
+        const isActive = provider.isActive !== false;
+
+        if (!categoryMatch || !hasActiveSubscription || !isActive) {
+          return res.status(403).json({
+            success: false,
+            message: 'Provider not eligible for this service request'
+          });
+        }
+
+        // Agregar a eligibleProviders para evitar el problema en el futuro
+        console.log(`[ProposalController] sendDraft: Adding provider ${req.user._id} to eligibleProviders (race condition fix)`);
+        await ServiceRequest.findByIdAndUpdate(serviceRequest._id, {
+          $addToSet: {
+            eligibleProviders: {
+              provider: req.user._id,
+              score: 0,
+              notified: false,
+              notifiedAt: new Date()
+            }
+          }
+        });
+      }
+
       // Completar campos mínimos y calcular comisión (normalizar rate)
       const amount = Number(proposal?.pricing?.amount || 0);
       if (!amount || amount <= 0) return res.status(400).json({ success: false, message: 'Amount is required to send proposal' });
@@ -330,14 +385,62 @@ class ProposalController {
       }
 
       // Verificar que el proveedor sea elegible
-      const isEligible = serviceRequest.eligibleProviders.some(
+      const isInEligibleList = serviceRequest.eligibleProviders.some(
         ep => ep.provider.toString() === req.user._id.toString()
       );
 
-      if (!isEligible && serviceRequest.visibility === 'auto') {
-        return res.status(403).json({
-          success: false,
-          message: 'Provider not eligible for this service request'
+      // Para solicitudes dirigidas, verificar que el proveedor esté en selectedProviders o eligibleProviders
+      if (serviceRequest.visibility === 'directed') {
+        const isSelected = (serviceRequest.selectedProviders || []).some(
+          id => id.toString() === req.user._id.toString()
+        );
+        if (!isSelected && !isInEligibleList) {
+          return res.status(403).json({
+            success: false,
+            message: 'Provider not selected for this directed request'
+          });
+        }
+      } else if (!isInEligibleList) {
+        // Para solicitudes automáticas, si no está en la lista, hacer verificación en tiempo real
+        // Esto soluciona la condición de carrera donde el proveedor ve la solicitud antes de ser agregado
+        const matchingService = (await import('../services/internal/matchingService.js')).default;
+        const Provider = (await import('../models/User/Provider.js')).default;
+        
+        // Verificar si el proveedor cumple los criterios básicos de elegibilidad
+        const provider = await Provider.findById(req.user._id);
+        if (!provider) {
+          return res.status(404).json({
+            success: false,
+            message: 'Provider not found'
+          });
+        }
+
+        // Verificar criterios básicos: categoría, suscripción activa, proveedor activo
+        const providerCategories = (provider.providerProfile?.services || []).map(s => s.category);
+        const requestCategory = serviceRequest.basicInfo?.category;
+        const categoryMatch = providerCategories.includes(requestCategory);
+        const hasActiveSubscription = provider.subscription?.status === 'active';
+        const isActive = provider.isActive !== false;
+
+        if (!categoryMatch || !hasActiveSubscription || !isActive) {
+          return res.status(403).json({
+            success: false,
+            message: 'Provider not eligible for this service request'
+          });
+        }
+
+        // Proveedor es elegible pero aún no estaba en la lista (condición de carrera)
+        // Agregarlo a la lista de elegibles para evitar este problema en futuras verificaciones
+        console.log(`[ProposalController] Adding provider ${req.user._id} to eligibleProviders (race condition fix)`);
+        await ServiceRequest.findByIdAndUpdate(serviceRequestId, {
+          $addToSet: {
+            eligibleProviders: {
+              provider: req.user._id,
+              score: 0,
+              notified: false,
+              notifiedAt: new Date()
+            }
+          }
         });
       }
 

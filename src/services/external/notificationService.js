@@ -77,10 +77,10 @@ class NotificationService {
       },
       serviceRequest: serviceRequest ? {
         id: serviceRequest._id,
-        title: serviceRequest.basicInfo.title,
-        category: serviceRequest.basicInfo.category,
-        urgency: serviceRequest.basicInfo.urgency,
-        location: serviceRequest.location.address
+        title: serviceRequest.basicInfo?.title || '',
+        category: serviceRequest.basicInfo?.category || '',
+        urgency: serviceRequest.basicInfo?.urgency || '',
+        location: serviceRequest.location?.address || ''
       } : null,
       channels: [],
       timestamp: new Date()
@@ -103,13 +103,13 @@ class NotificationService {
           subject: 'Nueva solicitud de servicio disponible',
           emailTemplate: 'new_request',
           whatsappTemplate: 'new_service_request',
-          message: `Tienes una nueva solicitud de ${serviceRequest.basicInfo.category} en ${serviceRequest.location.address}`,
-          actionUrl: `/empleos/${serviceRequest._id}`,
+          message: `Tienes una nueva solicitud de ${serviceRequest?.basicInfo?.category || ''} en ${serviceRequest?.location?.address || ''}`,
+          actionUrl: `/empleos/${serviceRequest?._id}`,
           priority: 'high',
           extraData: { 
-            category: serviceRequest.basicInfo.category, 
-            location: serviceRequest.location.address,
-            title: serviceRequest.basicInfo.title
+            category: serviceRequest?.basicInfo?.category || '', 
+            location: serviceRequest?.location?.address || '',
+            title: serviceRequest?.basicInfo?.title || ''
           }
         };
 
@@ -119,10 +119,10 @@ class NotificationService {
           subject: '¡Tu propuesta ha sido aceptada!',
           emailTemplate: 'proposal_accepted',
           whatsappTemplate: 'proposal_accepted',
-          message: `El cliente ha aceptado tu propuesta para ${serviceRequest.basicInfo.title}`,
+          message: `El cliente ha aceptado tu propuesta para ${serviceRequest?.basicInfo?.title || ''}`,
           actionUrl: `/reservas`,
           priority: 'high',
-          extraData: { title: serviceRequest.basicInfo.title, serviceTitle: serviceRequest.basicInfo.title }
+          extraData: { title: serviceRequest?.basicInfo?.title || '', serviceTitle: serviceRequest?.basicInfo?.title || '' }
         };
 
       case 'VERIFY_EMAIL':
@@ -189,12 +189,12 @@ class NotificationService {
       }
 
       const messageData = {
-        to: provider.profile.phone,
+        to: provider.profile?.phone || '',
         template: notificationData.whatsappTemplate,
         parameters: {
-          provider_name: provider.profile.firstName,
-          service_type: notificationData.serviceRequest.category,
-          location: notificationData.serviceRequest.location
+          provider_name: provider.profile?.firstName || '',
+          service_type: notificationData.serviceRequest?.category || '',
+          location: notificationData.serviceRequest?.location || ''
         }
       };
 

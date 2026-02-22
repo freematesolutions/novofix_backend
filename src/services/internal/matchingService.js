@@ -36,9 +36,9 @@ class MatchingService {
       const { category, urgency } = serviceRequest.basicInfo;
       const { coordinates } = serviceRequest.location;
 
-      // Construir query base
+      // Construir query base - filtrar SOLO por servicio principal (primer elemento)
       let query = {
-        'providerProfile.services.category': category,
+        'providerProfile.services.0.category': category,
         'subscription.status': 'active',
         isActive: true
       };

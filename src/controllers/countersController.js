@@ -76,15 +76,18 @@ class CountersController {
       if (hasProvider) {
         // Build visibility OR query for jobs
         const base = { status: { $in: ['published', 'active'] } };
-        // Derive categories from provider profile when available
-        let categories = [];
+        // Derive main category from provider profile (only first service = main service)
+        let mainCategory = null;
         try {
           const providerDoc = req.user.providerProfile ? req.user : (await (await import('../models/User/Provider.js')).default.findById(userId).select('providerProfile'));
           const svc = Array.isArray(providerDoc?.providerProfile?.services) ? providerDoc.providerProfile.services : [];
-          categories = svc.map(s => s.category).filter(Boolean);
+          // Solo usar el primer servicio (servicio principal)
+          if (svc.length > 0 && svc[0]?.category) {
+            mainCategory = svc[0].category;
+          }
         } catch { /* ignore */ }
 
-        const byCategory = categories.length > 0 ? { ...base, 'basicInfo.category': { $in: categories } } : base;
+        const byCategory = mainCategory ? { ...base, 'basicInfo.category': mainCategory } : base;
         const directed = { ...base, visibility: 'directed', selectedProviders: userId };
         const notified = { ...base, 'eligibleProviders.provider': userId };
 

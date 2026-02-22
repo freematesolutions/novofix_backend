@@ -44,6 +44,8 @@ const providerSchema = new mongoose.Schema({
       subcategories: [String],
       experience: Number // años de experiencia
     }],
+    // Servicios secundarios informativos (no afectan matching/búsquedas)
+    additionalServices: [String],
     qualifications: {
       licenses: [{
         type: String,
@@ -174,6 +176,9 @@ const providerSchema = new mongoose.Schema({
 });
 
 // Índices para búsqueda eficiente
+// Índice para buscar por servicio principal (primer elemento del array)
+providerSchema.index({ 'providerProfile.services.0.category': 1 });
+// Índice legacy para compatibilidad (puede eliminarse si todos los filtros usan services.0)
 providerSchema.index({ 'providerProfile.services.category': 1 });
 providerSchema.index(
   { 'providerProfile.serviceArea.location': '2dsphere' },

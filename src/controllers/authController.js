@@ -11,6 +11,17 @@ import notificationService from '../services/external/notificationService.js';
 import resendService from '../services/external/email/resendService.js';
 import subscriptionService from '../services/internal/subscriptionService.js';
 import crypto from 'crypto';
+import { SERVICE_CATEGORIES } from '../config/categories.js';
+
+const normalizeProviderServices = (services = [], additionalServices = []) => {
+  const safeServices = Array.isArray(services) ? services : [];
+  const mainService = safeServices[0] || null;
+  const extraCategories = safeServices.slice(1).map(s => s?.category).filter(Boolean);
+  const safeAdditional = Array.isArray(additionalServices) ? additionalServices : [];
+  const combinedAdditional = Array.from(new Set([...safeAdditional, ...extraCategories]))
+    .filter(cat => cat && cat !== mainService?.category);
+  return { mainService, additionalServices: combinedAdditional };
+};
 
 class AuthController {
   /**
@@ -162,10 +173,33 @@ class AuthController {
         businessName, 
         description, 
         services, 
+        additionalServices,
+        mainServiceCategory,
+        mainServiceName,
         serviceArea,
         phone,
         referredByCode 
       } = req.body;
+
+      const fallbackServices = (!services || !Array.isArray(services) || services.length === 0) && mainServiceCategory
+        ? [{ category: mainServiceCategory, name: mainServiceName || mainServiceCategory, description }]
+        : services;
+      const { mainService, additionalServices: normalizedAdditional } = normalizeProviderServices(fallbackServices, additionalServices);
+
+      if (!mainService || !mainService.category) {
+        return res.status(400).json({
+          success: false,
+          message: 'Main service is required'
+        });
+      }
+
+      if (!SERVICE_CATEGORIES.includes(mainService.category)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Main service category is invalid',
+          validCategories: SERVICE_CATEGORIES
+        });
+      }
 
       // Validar lat/lng dentro de rango si vienen
       if (serviceArea?.coordinates) {
@@ -185,14 +219,27 @@ class AuthController {
         });
       }
 
+      const existingProviderSameService = await Provider.findOne({
+        email,
+        'providerProfile.services.0.category': mainService.category
+      }).select('_id');
+      if (existingProviderSameService) {
+        return res.status(400).json({
+          success: false,
+          message: 'This email is already registered for the selected main service',
+          code: 'PROVIDER_EMAIL_SERVICE_EXISTS'
+        });
+      }
+
       // Verificar usuario existente: si existe, sugerir endpoint dedicado
       const existingUser = await User.findOne({ email }).select('+password');
       if (existingUser) {
         const currentRole = String(existingUser.role || '').toLowerCase();
-        if (currentRole === 'provider') {
-          return res.status(400).json({
+        if (currentRole === 'provider' || (Array.isArray(existingUser.roles) && existingUser.roles.includes('provider'))) {
+          return res.status(409).json({
             success: false,
-            message: 'User already exists as provider'
+            message: 'Email already registered with a different main service. Use another email or update your provider profile.',
+            code: 'PROVIDER_EMAIL_DIFFERENT_SERVICE'
           });
         }
 
@@ -229,7 +276,8 @@ class AuthController {
         providerProfile: {
           businessName,
           description,
-          services,
+          services: [mainService],
+          additionalServices: normalizedAdditional,
           serviceArea: (() => {
             const area = { zones: serviceArea?.zones || [], radius: serviceArea?.radius };
             if (serviceArea?.coordinates && Number.isFinite(serviceArea.coordinates.lat) && Number.isFinite(serviceArea.coordinates.lng)) {
@@ -563,7 +611,8 @@ class AuthController {
    */
   async checkEmailAvailability(req, res) {
     try {
-      const { email } = req.query;
+      const { email, serviceCategory, mainServiceCategory, role } = req.query;
+      const mainCategory = mainServiceCategory || serviceCategory;
 
       if (!email || typeof email !== 'string') {
         return res.status(400).json({
@@ -583,8 +632,37 @@ class AuthController {
       }
 
       // Verificar si existe en la base de datos
-      const existingUser = await User.findOne({ email }).select('_id');
+      const existingUser = await User.findOne({ email }).select('_id role roles');
       const available = !existingUser;
+
+      // Si se solicita validación como proveedor con categoría principal
+      if (mainCategory && (role === 'provider' || role === 'professional' || role === 'prestador')) {
+        const providerSameService = await Provider.findOne({
+          email,
+          'providerProfile.services.0.category': mainCategory
+        }).select('_id');
+        if (providerSameService) {
+          return res.json({
+            success: true,
+            available: false,
+            code: 'PROVIDER_EMAIL_SERVICE_EXISTS',
+            message: 'This email is already registered for the selected main service'
+          });
+        }
+        if (existingUser) {
+          return res.json({
+            success: true,
+            available: false,
+            code: 'PROVIDER_EMAIL_DIFFERENT_SERVICE',
+            message: 'Email already registered with a different main service'
+          });
+        }
+        return res.json({
+          success: true,
+          available: true,
+          message: 'Email is available'
+        });
+      }
 
       return res.json({
         success: true,
@@ -726,10 +804,25 @@ class AuthController {
         businessName,
         description,
         services,
+        additionalServices,
+        mainServiceCategory,
+        mainServiceName,
         serviceArea,
         phone,
         referredBy
       } = req.body;
+
+      const fallbackServices = (!services || !Array.isArray(services) || services.length === 0) && mainServiceCategory
+        ? [{ category: mainServiceCategory, name: mainServiceName || mainServiceCategory, description }]
+        : services;
+      const { mainService, additionalServices: normalizedAdditional } = normalizeProviderServices(fallbackServices, additionalServices);
+
+      if (!mainService || !mainService.category) {
+        return res.status(400).json({ success: false, message: 'Main service is required' });
+      }
+      if (!SERVICE_CATEGORIES.includes(mainService.category)) {
+        return res.status(400).json({ success: false, message: 'Main service category is invalid', validCategories: SERVICE_CATEGORIES });
+      }
 
       if (!businessName || typeof businessName !== 'string') {
         return res.status(400).json({ success: false, message: 'Business name is required and must be a string' });
@@ -773,7 +866,8 @@ class AuthController {
             'profile.phone': phone,
             'providerProfile.businessName': businessName,
             'providerProfile.description': description,
-            'providerProfile.services': services,
+            'providerProfile.services': [mainService],
+            'providerProfile.additionalServices': normalizedAdditional,
             ...svcAreaSet,
             'subscription.plan': 'free',
             'subscription.status': 'active',
@@ -1064,7 +1158,22 @@ class AuthController {
             setOps['providerProfile.description'] = updateData.description;
           }
           if (updateData.services !== undefined) {
-            setOps['providerProfile.services'] = updateData.services;
+            const { mainService, additionalServices: normalizedAdditional } = normalizeProviderServices(
+              updateData.services,
+              updateData.additionalServices
+            );
+            if (!mainService || !mainService.category) {
+              return res.status(400).json({ success: false, message: 'Main service is required' });
+            }
+            if (!SERVICE_CATEGORIES.includes(mainService.category)) {
+              return res.status(400).json({ success: false, message: 'Main service category is invalid', validCategories: SERVICE_CATEGORIES });
+            }
+            setOps['providerProfile.services'] = [mainService];
+            setOps['providerProfile.additionalServices'] = normalizedAdditional;
+          } else if (updateData.additionalServices !== undefined) {
+            setOps['providerProfile.additionalServices'] = Array.isArray(updateData.additionalServices)
+              ? updateData.additionalServices
+              : [];
           }
           if (updateData.availability !== undefined) {
             setOps['providerProfile.availability'] = updateData.availability;

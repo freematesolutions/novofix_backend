@@ -140,7 +140,7 @@ class RequestController {
               if (!eligible || (eligible.totalCount || 0) === 0) {
                 const Provider = (await import('../models/User/Provider.js')).default;
                 const fallbackCount = await Provider.countDocuments({
-                  'providerProfile.services.category': category,
+                  'providerProfile.services.0.category': category,
                   'subscription.status': 'active',
                   isActive: true
                 });
@@ -155,7 +155,7 @@ class RequestController {
               try {
                 const Provider = (await import('../models/User/Provider.js')).default;
                 const fallbackCount = await Provider.countDocuments({
-                  'providerProfile.services.category': category,
+                  'providerProfile.services.0.category': category,
                   'subscription.status': 'active',
                   isActive: true
                 });
@@ -456,11 +456,13 @@ class RequestController {
         // Siempre limitar a solicitudes del cliente autenticado (independiente de rol field inconsistencies)
         query.client = req.user._id;
       } else if (isProviderRoute) {
-          // Mostrar solicitudes publicadas/activas para categorías del proveedor
+          // Mostrar solicitudes publicadas/activas para la categoría principal del proveedor
           // e incluir cualquier solicitud dirigida al proveedor o donde fue notificado explícitamente
           const base = { status: { $in: ['published', 'active'] } };
           const svc = Array.isArray(req.user?.providerProfile?.services) ? req.user.providerProfile.services : [];
-          const byCategory = svc.length > 0 ? { ...base, 'basicInfo.category': { $in: svc.map(s => s.category) } } : base;
+          // Solo usar el primer servicio (servicio principal)
+          const mainCategory = svc.length > 0 && svc[0]?.category ? svc[0].category : null;
+          const byCategory = mainCategory ? { ...base, 'basicInfo.category': mainCategory } : base;
           const directed = { ...base, visibility: 'directed', selectedProviders: req.user._id };
           const notified = { ...base, 'eligibleProviders.provider': req.user._id };
           // Combine with OR to guarantee visibility when client selected this provider
@@ -561,10 +563,12 @@ class RequestController {
       if (isClientRoute) {
         query.client = req.user._id;
       } else if (isProviderRoute) {
-        // Permitir ver si está publicada/activa y es de su categoría, o si fue dirigida a este proveedor, o si fue notificado
+        // Permitir ver si está publicada/activa y es de su categoría principal, o si fue dirigida a este proveedor, o si fue notificado
         const base = { _id: id, status: { $in: ['published', 'active'] } };
         const svc = Array.isArray(req.user?.providerProfile?.services) ? req.user.providerProfile.services : [];
-        const byCategory = svc.length > 0 ? { ...base, 'basicInfo.category': { $in: svc.map(s => s.category) } } : base;
+        // Solo usar el primer servicio (servicio principal)
+        const mainCategory = svc.length > 0 && svc[0]?.category ? svc[0].category : null;
+        const byCategory = mainCategory ? { ...base, 'basicInfo.category': mainCategory } : base;
         const directed = { ...base, visibility: 'directed', selectedProviders: req.user._id };
         const notified = { ...base, 'eligibleProviders.provider': req.user._id };
         query = { $or: [byCategory, directed, notified] };
@@ -706,7 +710,8 @@ class RequestController {
         'subscription.status': 'active'
       };
       if (category) {
-        base['providerProfile.services.category'] = category;
+        // Filtrar SOLO por el servicio principal (primer elemento del array)
+        base['providerProfile.services.0.category'] = category;
       }
 
       const select = {
@@ -721,6 +726,7 @@ class RequestController {
         'providerProfile.rating.count': 1,
         'providerProfile.rating.breakdown': 1,
         'providerProfile.services': 1,
+        'providerProfile.additionalServices': 1,
         'providerProfile.portfolio': 1,
         'providerProfile.stats': 1,
         'subscription.plan': 1,
@@ -749,7 +755,7 @@ class RequestController {
             { 'profile.firstName': wordRegex },
             { 'providerProfile.description': wordRegex },
             { 'providerProfile.businessDescription': wordRegex },
-            { 'providerProfile.services.category': wordRegex },
+            { 'providerProfile.services.0.category': wordRegex },
             { 'providerProfile.services.description': wordRegex },
             { 'providerProfile.serviceArea.address': wordRegex }
           );
@@ -772,7 +778,8 @@ class RequestController {
         );
         
         if (matchingCategories.length > 0) {
-          orText.push({ 'providerProfile.services.category': { $in: matchingCategories } });
+          // Buscar solo en el servicio principal
+          orText.push({ 'providerProfile.services.0.category': { $in: matchingCategories } });
         }
       }
 
@@ -959,8 +966,8 @@ class RequestController {
       const Provider = (await import('../models/User/Provider.js')).default;
       const { SERVICE_CATEGORIES } = await import('../config/categories.js');
 
-      // Obtener categorías únicas de proveedores activos
-      const activeCategories = await Provider.distinct('providerProfile.services.category', {
+      // Obtener categorías únicas de proveedores activos (solo servicio principal)
+      const activeCategories = await Provider.distinct('providerProfile.services.0.category', {
         'subscription.status': 'active',
         isActive: true
       });
@@ -970,11 +977,11 @@ class RequestController {
         .filter(cat => SERVICE_CATEGORIES.includes(cat))
         .sort((a, b) => a.localeCompare(b, 'es'));
 
-      // Obtener conteo de proveedores por categoría
+      // Obtener conteo de proveedores por categoría (solo servicio principal)
       const categoriesWithCount = await Promise.all(
         validCategories.map(async (category) => {
           const count = await Provider.countDocuments({
-            'providerProfile.services.category': category,
+            'providerProfile.services.0.category': category,
             'subscription.status': 'active',
             isActive: true
           });
@@ -1012,7 +1019,7 @@ class RequestController {
       const subscriptionService = (await import('../services/internal/subscriptionService.js')).default;
 
       const baseQuery = {
-        'providerProfile.services.category': category,
+        'providerProfile.services.0.category': category,
         'subscription.status': 'active',
         isActive: true
       };

@@ -20,7 +20,8 @@ class GuestController {
         isActive: true
       };
       if (category) {
-        base['providerProfile.services.category'] = category;
+        // Filtrar SOLO por el servicio principal (primer elemento del array)
+        base['providerProfile.services.0.category'] = category;
       }
 
       const select = {
@@ -34,6 +35,7 @@ class GuestController {
         'providerProfile.rating.count': 1,
         'providerProfile.rating.breakdown': 1,
         'providerProfile.services': 1,
+        'providerProfile.additionalServices': 1,
         'providerProfile.portfolio': 1,
         'providerProfile.stats': 1,
         'subscription.plan': 1,
@@ -71,7 +73,7 @@ class GuestController {
             { 'profile.firstName': wordRegex },
             { 'providerProfile.description': wordRegex },
             { 'providerProfile.businessDescription': wordRegex },
-            { 'providerProfile.services.category': wordRegex },
+            { 'providerProfile.services.0.category': wordRegex },
             { 'providerProfile.services.description': wordRegex },
             { 'providerProfile.serviceArea.address': wordRegex }
           );
@@ -94,7 +96,8 @@ class GuestController {
         
         if (matchingCategories.length > 0) {
           console.log(`📋 Found matching categories: ${matchingCategories.join(', ')}`);
-          orText.push({ 'providerProfile.services.category': { $in: matchingCategories } });
+          // Buscar solo en el servicio principal
+          orText.push({ 'providerProfile.services.0.category': { $in: matchingCategories } });
         }
         
         // Búsqueda por palabras clave comunes con análisis NLP profundo
@@ -183,7 +186,8 @@ class GuestController {
           if (keywordRegex.test(searchText)) {
             console.log(`🔑 Keyword match: "${searchText}" -> ${categoryName}`);
             matchedCategories.add(categoryName);
-            orText.push({ 'providerProfile.services.category': categoryName });
+            // Buscar solo en el servicio principal (primer elemento)
+            orText.push({ 'providerProfile.services.0.category': categoryName });
           }
         }
         
@@ -325,6 +329,7 @@ class GuestController {
         'providerProfile.rating.count': 1,
         'providerProfile.rating.breakdown': 1,
         'providerProfile.services': 1,
+        'providerProfile.additionalServices': 1,
         'providerProfile.portfolio': 1,
         'providerProfile.stats': 1,
         'subscription.plan': 1,
@@ -946,19 +951,19 @@ class GuestController {
       const totalClients = await Client.countDocuments({ isActive: true });
       console.log(`👥 Found ${totalClients} active clients`);
 
-      // Contar proveedores por categoría (incluir todos, incluso sin suscripción activa por ahora)
+      // Contar proveedores por categoría - SOLO por servicio principal (primer elemento)
       const categoryCounts = {};
       providers.forEach(p => {
-        if (p.providerProfile?.services && Array.isArray(p.providerProfile.services)) {
-          p.providerProfile.services.forEach(s => {
-            if (s.category) {
-              categoryCounts[s.category] = (categoryCounts[s.category] || 0) + 1;
-            }
-          });
+        if (p.providerProfile?.services && Array.isArray(p.providerProfile.services) && p.providerProfile.services.length > 0) {
+          // Solo contar el primer servicio (servicio principal)
+          const mainService = p.providerProfile.services[0];
+          if (mainService?.category) {
+            categoryCounts[mainService.category] = (categoryCounts[mainService.category] || 0) + 1;
+          }
         }
       });
 
-      console.log('📋 Category counts:', categoryCounts);
+      console.log('📋 Category counts (by main service):', categoryCounts);
 
       // Filtrar categorías con descripción y agregar conteo
       const services = SERVICE_CATEGORIES_WITH_DESCRIPTION
@@ -1197,6 +1202,7 @@ class GuestController {
           'providerProfile.rating.count': 1,
           'providerProfile.rating.breakdown': 1,
           'providerProfile.services': 1,
+          'providerProfile.additionalServices': 1,
           'providerProfile.portfolio': 1,
           'providerProfile.stats': 1,
           'providerProfile.serviceArea.address': 1,

@@ -97,7 +97,8 @@ class RequestController {
           photos: photos || [],
           videos: videos || []
         },
-        visibility: visibility || 'auto',
+        visibility: (targetProviders && Array.isArray(targetProviders) && targetProviders.length > 0) ? 'directed' : (visibility || 'auto'),
+        selectedProviders: (targetProviders && Array.isArray(targetProviders) && targetProviders.length > 0) ? targetProviders : [],
         status: initialStatus,
         expiryDate
       });
@@ -181,14 +182,16 @@ class RequestController {
 
           // Buscar proveedores elegibles y notificar según visibilidad
           let notificationResult;
-          if (serviceRequest.status === 'published' && serviceRequest.visibility === 'auto') {
-            if (targetProviders && Array.isArray(targetProviders) && targetProviders.length > 0) {
+          if (serviceRequest.status === 'published') {
+            if (serviceRequest.visibility === 'directed' && Array.isArray(serviceRequest.selectedProviders) && serviceRequest.selectedProviders.length > 0) {
+              // Solicitud dirigida: notificar solo a los proveedores seleccionados
               notificationResult = await matchingService.notifyProviders(
                 serviceRequest._id,
                 'directed',
-                targetProviders
+                serviceRequest.selectedProviders.map(id => String(id))
               );
-            } else {
+            } else if (serviceRequest.visibility === 'auto') {
+              // Solicitud abierta: notificar por categoría/geo
               notificationResult = await matchingService.notifyProviders(
                 serviceRequest._id,
                 'auto'
@@ -462,7 +465,10 @@ class RequestController {
           const svc = Array.isArray(req.user?.providerProfile?.services) ? req.user.providerProfile.services : [];
           // Solo usar el primer servicio (servicio principal)
           const mainCategory = svc.length > 0 && svc[0]?.category ? svc[0].category : null;
-          const byCategory = mainCategory ? { ...base, 'basicInfo.category': mainCategory } : base;
+          // byCategory: solo solicitudes 'auto' (abiertas) — excluir las dirigidas a otros proveedores
+          const byCategory = mainCategory
+            ? { ...base, 'basicInfo.category': mainCategory, visibility: { $ne: 'directed' } }
+            : { ...base, visibility: { $ne: 'directed' } };
           const directed = { ...base, visibility: 'directed', selectedProviders: req.user._id };
           const notified = { ...base, 'eligibleProviders.provider': req.user._id };
           // Combine with OR to guarantee visibility when client selected this provider
@@ -586,7 +592,13 @@ class RequestController {
             select: '_id profile providerProfile'
           }
         })
-        .populate('acceptedProposal')
+        .populate({
+          path: 'acceptedProposal',
+          populate: {
+            path: 'provider',
+            select: '_id profile providerProfile'
+          }
+        })
         .populate('eligibleProviders.provider', 'providerProfile subscription');
 
       if (!serviceRequest) {

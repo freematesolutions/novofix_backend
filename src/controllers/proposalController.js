@@ -112,9 +112,12 @@ class ProposalController {
       const { serviceRequestId } = req.params;
       const { message } = req.body || {};
 
-      const serviceRequest = await ServiceRequest.findOne({ _id: serviceRequestId, status: { $in: ['published'] } });
+      const serviceRequest = await ServiceRequest.findById(serviceRequestId);
       if (!serviceRequest) {
-        return res.status(404).json({ success: false, message: 'Service request not found or not available' });
+        return res.status(404).json({ success: false, message: 'Service request not found' });
+      }
+      if (serviceRequest.status !== 'published') {
+        return res.status(409).json({ success: false, message: 'Service request is not available for proposals', currentStatus: serviceRequest.status });
       }
 
       // Evitar duplicar propuestas del mismo proveedor
@@ -203,8 +206,11 @@ class ProposalController {
       // Suscripción y límite ya verificados por middlewares requireActiveSubscription & checkLeadLimit (en rutas)
 
       const serviceRequest = proposal.serviceRequest;
-      if (!serviceRequest || serviceRequest.status !== 'published') {
-        return res.status(404).json({ success: false, message: 'Service request not found or not available' });
+      if (!serviceRequest) {
+        return res.status(404).json({ success: false, message: 'Service request not found' });
+      }
+      if (serviceRequest.status !== 'published') {
+        return res.status(409).json({ success: false, message: 'Service request is not available for proposals', currentStatus: serviceRequest.status });
       }
 
       // Verificar elegibilidad del proveedor (mismo flujo que sendProposal para evitar race condition)
@@ -372,15 +378,29 @@ class ProposalController {
       // Suscripción activa y lead limit ya verificados por middlewares en la ruta
 
       // Verificar solicitud de servicio
-      const serviceRequest = await ServiceRequest.findOne({
-        _id: serviceRequestId,
-        status: 'published'
-      });
+      const serviceRequest = await ServiceRequest.findById(serviceRequestId);
 
       if (!serviceRequest) {
         return res.status(404).json({
           success: false,
-          message: 'Service request not found or not available'
+          message: 'Service request not found'
+        });
+      }
+
+      // Verificar que la solicitud esté disponible para recibir propuestas
+      if (serviceRequest.status !== 'published') {
+        const statusMessages = {
+          active: 'This request already has an accepted proposal',
+          completed: 'This request has been completed',
+          cancelled: 'This request has been cancelled',
+          expired: 'This request has expired',
+          archived: 'This request has been archived',
+          draft: 'This request is not yet published'
+        };
+        return res.status(409).json({
+          success: false,
+          message: statusMessages[serviceRequest.status] || 'Service request is not available for proposals',
+          currentStatus: serviceRequest.status
         });
       }
 

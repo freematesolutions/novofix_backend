@@ -135,6 +135,98 @@ class NotificationService {
           emailTemplate: 'verify_email'
         };
 
+      case 'NEW_REVIEW':
+        return {
+          ...baseData,
+          subject: 'Nueva reseña recibida ⭐',
+          message: extra?.clientName
+            ? `${extra.clientName} ha dejado una reseña sobre tu servicio.`
+            : 'Has recibido una nueva reseña de un cliente.',
+          actionUrl: '/reservas',
+          priority: 'medium',
+          extraData: { clientName: extra?.clientName || '', rating: extra?.rating || '', bookingId: extra?.bookingId || '' }
+        };
+
+      case 'NEW_CLIENT_REVIEW':
+        return {
+          ...baseData,
+          subject: 'Nueva reseña de cliente ⭐',
+          message: extra?.clientName
+            ? `${extra.clientName} ha dejado una reseña.`
+            : 'Has recibido una nueva reseña.',
+          actionUrl: '/reservas',
+          priority: 'medium',
+          extraData: { clientName: extra?.clientName || '', rating: extra?.rating || '', bookingId: extra?.bookingId || '' }
+        };
+
+      case 'PAYMENT_RECEIVED':
+        return {
+          ...baseData,
+          subject: 'Pago recibido ✅',
+          message: extra?.amount ? `Has recibido un pago de $${extra.amount}.` : 'Has recibido un pago.',
+          actionUrl: '/reservas',
+          priority: 'medium',
+          extraData: { amount: extra?.amount || '', bookingId: extra?.bookingId || '' }
+        };
+
+      case 'ACCOUNT_ACTIVATED':
+        return {
+          ...baseData,
+          subject: '¡Tu cuenta ha sido activada! ✅',
+          message: 'Tu cuenta de proveedor está activa. Ya puedes recibir solicitudes.',
+          actionUrl: '/empleos',
+          priority: 'medium',
+          extraData: {}
+        };
+
+      case 'ACCOUNT_DEACTIVATED':
+        return {
+          ...baseData,
+          subject: 'Cuenta desactivada',
+          message: 'Tu cuenta de proveedor ha sido desactivada. Contacta soporte para más información.',
+          actionUrl: '/perfil',
+          priority: 'high',
+          extraData: {}
+        };
+
+      case 'SERVICE_EVIDENCE_UPLOADED':
+        return {
+          ...baseData,
+          subject: 'Evidencia de servicio subida 📸',
+          message: 'Se ha subido nueva evidencia para tu servicio.',
+          actionUrl: '/reservas',
+          priority: 'medium',
+          extraData: { bookingId: extra?.bookingId || '' }
+        };
+
+      case 'REVIEW_RESPONSE':
+      case 'REVIEW_RESPONSE_UPDATED':
+      case 'REVIEW_RESPONSE_REMOVED':
+        return {
+          ...baseData,
+          subject: extra?.subject || 'Actualización de reseña',
+          message: extra?.message || 'Hay una actualización en una de tus reseñas.',
+          actionUrl: '/reservas',
+          priority: 'medium',
+          extraData: { reviewId: extra?.reviewId || '', bookingId: extra?.bookingId || '' }
+        };
+
+      case 'BOOKING_STATUS_UPDATE':
+        return {
+          ...baseData,
+          subject: 'Actualización de reserva',
+          message: extra?.clientName
+            ? `${extra.clientName} ha confirmado la finalización del servicio.`
+            : 'El estado de tu reserva ha sido actualizado.',
+          actionUrl: '/reservas',
+          priority: 'medium',
+          extraData: {
+            clientName: extra?.clientName || '',
+            status: extra?.status || '',
+            bookingId: extra?.bookingId || ''
+          }
+        };
+
       default:
         return baseData;
     }
@@ -418,6 +510,49 @@ class NotificationService {
           actionUrl: extra?.chatId ? `/mensajes?chat=${extra.chatId}` : '/mensajes',
           priority: 'medium',
           extraData: { senderName: extra?.senderName || '', chatId: extra?.chatId || '' }
+        };
+      case 'SERVICE_EVIDENCE_UPLOADED':
+        return {
+          ...base,
+          subject: 'Evidencia de servicio subida 📸',
+          message: extra?.providerName
+            ? `${extra.providerName} ha subido evidencia del servicio.`
+            : 'Se ha subido nueva evidencia para tu servicio.',
+          actionUrl: '/reservas',
+          priority: 'medium',
+          extraData: { providerName: extra?.providerName || '', bookingId: extra?.bookingId || '' }
+        };
+      case 'REVIEW_RESPONSE':
+      case 'REVIEW_RESPONSE_UPDATED':
+        return {
+          ...base,
+          subject: 'Respuesta a tu reseña',
+          message: extra?.providerName
+            ? `${extra.providerName} ha respondido a tu reseña.`
+            : 'El proveedor ha respondido a tu reseña.',
+          actionUrl: '/reservas',
+          priority: 'medium',
+          extraData: { providerName: extra?.providerName || '', reviewId: extra?.reviewId || '' }
+        };
+      case 'REVIEW_RESPONSE_REMOVED':
+        return {
+          ...base,
+          subject: 'Respuesta de reseña eliminada',
+          message: 'Una respuesta a tu reseña ha sido eliminada.',
+          actionUrl: '/reservas',
+          priority: 'low',
+          extraData: { reviewId: extra?.reviewId || '' }
+        };
+      case 'NEW_CLIENT_REVIEW':
+        return {
+          ...base,
+          subject: 'Han valorado tu servicio ⭐',
+          message: extra?.providerName
+            ? `${extra.providerName} ha valorado tu experiencia como cliente.`
+            : 'Has recibido una valoración.',
+          actionUrl: '/reservas',
+          priority: 'medium',
+          extraData: { providerName: extra?.providerName || '', rating: extra?.rating || '' }
         };
       default:
         return {

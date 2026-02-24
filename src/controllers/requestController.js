@@ -854,7 +854,7 @@ class RequestController {
         });
       }
 
-      if (!['draft', 'published'].includes(serviceRequest.status)) {
+      if (!['draft', 'published', 'archived'].includes(serviceRequest.status)) {
         return res.status(400).json({
           success: false,
           message: 'Cannot cancel request in current status'
@@ -942,7 +942,12 @@ class RequestController {
       const preview = (eligibleProviders || []).slice(0, 5).map(ep => ({
         provider: ep.provider,
         score: ep.score,
-        profile: ep.profile?.businessName ? { businessName: ep.profile.businessName, plan: ep.profile.subscription } : undefined
+        profile: ep.profile ? { 
+          businessName: ep.profile.businessName, 
+          rating: ep.profile.rating,
+          services: ep.profile.services,
+          plan: ep.profile.subscription 
+        } : undefined
       }));
 
       return res.json({

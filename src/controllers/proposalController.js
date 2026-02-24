@@ -597,7 +597,14 @@ class ProposalController {
       if (status) query.status = status;
 
       const proposals = await Proposal.find(query)
-        .populate('serviceRequest', 'basicInfo location scheduling status')
+        .populate({
+          path: 'serviceRequest',
+          select: 'basicInfo location scheduling status client',
+          populate: {
+            path: 'client',
+            select: 'profile.firstName profile.lastName'
+          }
+        })
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(parseInt(limit));
@@ -665,10 +672,12 @@ class ProposalController {
           proposals,
           request: {
             title: serviceRequest.basicInfo.title,
+            description: serviceRequest.basicInfo.description,
             translations: serviceRequest.basicInfo.translations,
             originalLanguage: serviceRequest.basicInfo.originalLanguage,
             budget: serviceRequest.budget,
-            status: serviceRequest.status
+            status: serviceRequest.status,
+            media: serviceRequest.media || {}
           }
         }
       });
@@ -728,7 +737,7 @@ class ProposalController {
       // Crear booking (será implementado en BookingController)
   const booking = await bookingController.createBookingFromProposal(proposal);
 
-      // Notificar al proveedor
+      // Notificar al proveedor que su propuesta fue aceptada
       await notificationService.sendProviderNotification({
         providerId: proposal.provider._id,
         serviceRequestId: proposal.serviceRequest._id,
@@ -739,6 +748,21 @@ class ProposalController {
           clientName: req.user.profile.firstName
         }
       });
+
+      // Notificar al cliente que la reserva ha sido confirmada
+      try {
+        await notificationService.sendClientNotification({
+          clientId: req.user._id,
+          type: 'BOOKING_CONFIRMED',
+          data: {
+            bookingId: booking?._id,
+            providerName: proposal.provider.providerProfile?.businessName || proposal.provider.profile?.firstName || '',
+            requestTitle: proposal.serviceRequest.basicInfo.title
+          }
+        });
+      } catch (err) {
+        console.warn('acceptProposal: failed to send BOOKING_CONFIRMED to client', err?.message);
+      }
 
       // Rechazar automáticamente otras propuestas
       await Proposal.updateMany(

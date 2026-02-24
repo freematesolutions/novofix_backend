@@ -34,7 +34,7 @@ class MatchingService {
       }
 
       const { category, urgency } = serviceRequest.basicInfo;
-      const { coordinates } = serviceRequest.location;
+      const coordinates = serviceRequest.location?.coordinates || null;
 
       // Construir query base - filtrar SOLO por servicio principal (primer elemento)
       let query = {

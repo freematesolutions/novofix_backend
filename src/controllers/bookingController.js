@@ -347,6 +347,21 @@ class BookingController {
       // Procesar pago (integrar con Stripe)
       await this.processPayment(booking);
 
+      // Notificar al proveedor que el servicio fue confirmado como completado
+      try {
+        await notificationService.sendProviderNotification({
+          providerId: booking.provider,
+          type: 'BOOKING_STATUS_UPDATE',
+          data: {
+            bookingId: booking._id,
+            status: 'completed',
+            clientName: req.user.profile?.firstName || 'Cliente'
+          }
+        });
+      } catch (err) {
+        console.warn('confirmServiceCompletion: failed to notify provider', err?.message);
+      }
+
       // Habilitar sistema de reviews
       await this.enableReviewSystem(booking);
 

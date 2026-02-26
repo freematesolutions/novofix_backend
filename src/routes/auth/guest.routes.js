@@ -9,6 +9,7 @@ const router = express.Router();
 // Rutas públicas (sin sesión)
 router.get('/services/active', guestController.getActiveServices);
 router.get('/providers/search', guestController.searchProvidersPublic);
+router.get('/providers/suggestions', guestController.searchSuggestions);
 router.get('/providers/featured', guestController.getFeaturedProviders);
 router.get('/providers/:providerId', guestController.getProviderById);
 router.get('/testimonials/featured', guestController.getFeaturedTestimonials);

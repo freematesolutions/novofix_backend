@@ -6,6 +6,18 @@ import Booking from '../models/Service/Booking.js';
 import Review from '../models/Service/Review.js';
 
 class AdminController {
+  constructor() {
+    // Bind all methods to preserve 'this' context when used as Express route callbacks
+    this.getDashboard = this.getDashboard.bind(this);
+    this.manageUsers = this.manageUsers.bind(this);
+    this.updateUserStatus = this.updateUserStatus.bind(this);
+    this.updateUserRole = this.updateUserRole.bind(this);
+    this.moderateReviews = this.moderateReviews.bind(this);
+    this.takeReviewAction = this.takeReviewAction.bind(this);
+    this.getReports = this.getReports.bind(this);
+    this.notifyModerators = this.notifyModerators.bind(this);
+  }
+
   /**
    * Dashboard de administración
    */

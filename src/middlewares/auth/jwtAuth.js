@@ -177,7 +177,8 @@ const refreshToken = async (req, res, next) => {
  * Middleware que verifica que el usuario es admin
  */
 const adminOnly = (req, res, next) => {
-  if (!req.user || req.user.role !== 'admin') {
+  const userRole = String(req.user?.role || '').toLowerCase();
+  if (!req.user || userRole !== 'admin') {
     return res.status(403).json({
       success: false,
       message: 'Admin access required'

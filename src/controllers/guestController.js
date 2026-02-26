@@ -3,17 +3,36 @@ import mongoose from 'mongoose';
 import Session from '../models/System/Session.js';
 import ServiceRequest from '../models/Service/ServiceRequest.js';
 import Client from '../models/User/Client.js';
+import { findMatchingCategories, getSuggestions, normalizeText, STOPWORDS } from '../config/searchKeywords.js';
 
 class GuestController {
   /**
+   * Sugerencias de búsqueda en tiempo real (público, ligero)
+   * Devuelve categorías detectadas para mostrar chips/badges en el frontend
+   */
+  async searchSuggestions(req, res) {
+    try {
+      const { q } = req.query;
+      if (!q || String(q).trim().length < 2) {
+        return res.json({ success: true, data: { suggestions: [] } });
+      }
+      const suggestions = getSuggestions(String(q).trim());
+      res.json({ success: true, data: { suggestions } });
+    } catch (error) {
+      console.error('GuestController - searchSuggestions error:', error);
+      res.json({ success: true, data: { suggestions: [] } });
+    }
+  }
+
+  /**
    * Buscar proveedores (público, sin autenticación)
+   * Búsqueda inteligente bilingüe con normalización + fuzzy matching
    */
   async searchProvidersPublic(req, res) {
     try {
-      const { q, category, lat, lng, limit = 20 } = req.query;
+      const { q, category, location: locationQuery, lat, lng, limit = 20 } = req.query;
       const Provider = (await import('../models/User/Provider.js')).default;
       const scoringService = (await import('../services/internal/scoringService.js')).default;
-      const { SERVICE_CATEGORIES } = await import('../config/categories.js');
 
       // Consulta base más flexible - no requerir suscripción activa obligatoriamente
       const base = {
@@ -49,193 +68,91 @@ class GuestController {
       const lim = Math.min(Math.max(parseInt(limit) || 20, 1), 100);
       const hasCoords = lat != null && lng != null && !isNaN(Number(lat)) && !isNaN(Number(lng));
 
-      // Búsqueda inteligente por texto con NLP profundo
+      // ─── Búsqueda inteligente bilingüe con diccionario centralizado ───
       let orText = [];
+      let detectedCategories = [];
+
       if (q && String(q).trim().length > 0) {
-        const searchText = String(q).trim().toLowerCase();
-        console.log(`🔍 Intelligent text search for: "${searchText}"`);
-        
-        // Análisis de lenguaje natural - Extraer palabras clave
-        const words = searchText.split(/\s+/).filter(w => w.length > 2);
-        console.log(`📝 Extracted words: ${words.join(', ')}`);
-        
-        // Crear múltiples regex para cada palabra
-        const wordRegexes = words.map(word => ({ $regex: word, $options: 'i' }));
-        
-        // Buscar en múltiples campos con cada palabra
-        orText = [];
-        
-        // Para cada palabra, buscar en todos los campos
-        words.forEach(word => {
+        const searchText = String(q).trim();
+        const normalized = normalizeText(searchText);
+        console.log(`🔍 Smart search: "${searchText}" → normalized: "${normalized}"`);
+
+        // Extraer palabras significativas (sin stopwords, min length 2)
+        const words = normalized.split(/\s+/).filter(w => w.length >= 2 && !STOPWORDS.has(w));
+        console.log(`📝 Significant words: [${words.join(', ')}]`);
+
+        // 1. Buscar categorías con diccionario bilingüe + fuzzy matching
+        const matchedCategories = findMatchingCategories(searchText);
+        if (matchedCategories.size > 0) {
+          detectedCategories = Array.from(matchedCategories);
+          console.log(`🎯 Detected categories: ${detectedCategories.join(', ')}`);
+          // Agregar match por categoría principal — alta prioridad
+          orText.push({ 'providerProfile.services.0.category': { $in: detectedCategories } });
+        }
+
+        // 2. Búsqueda por palabras en campos clave (limitada a max 5 palabras más relevantes)
+        const topWords = words.slice(0, 5);
+        topWords.forEach(word => {
+          if (word.length < 2) return;
           const wordRegex = { $regex: word, $options: 'i' };
           orText.push(
             { 'providerProfile.businessName': wordRegex },
-            { 'profile.firstName': wordRegex },
             { 'providerProfile.description': wordRegex },
             { 'providerProfile.businessDescription': wordRegex },
             { 'providerProfile.services.0.category': wordRegex },
-            { 'providerProfile.services.description': wordRegex },
-            { 'providerProfile.serviceArea.address': wordRegex }
+            { 'providerProfile.services.description': wordRegex }
           );
         });
-        
-        // También buscar la frase completa
-        const searchRegex = { $regex: searchText, $options: 'i' };
-        orText.push(
-          { 'providerProfile.businessName': searchRegex },
-          { 'providerProfile.description': searchRegex },
-          { 'providerProfile.businessDescription': searchRegex },
-          { 'providerProfile.services.description': searchRegex }
-        );
-        
-        // Búsqueda inteligente por categorías - buscar coincidencias parciales
-        const matchingCategories = SERVICE_CATEGORIES.filter(cat => 
-          cat.toLowerCase().includes(searchText.toLowerCase()) ||
-          searchText.toLowerCase().includes(cat.toLowerCase())
-        );
-        
-        if (matchingCategories.length > 0) {
-          console.log(`📋 Found matching categories: ${matchingCategories.join(', ')}`);
-          // Buscar solo en el servicio principal
-          orText.push({ 'providerProfile.services.0.category': { $in: matchingCategories } });
+
+        // 3. Búsqueda por frase completa en campos principales
+        if (normalized.length >= 3) {
+          const phraseRegex = { $regex: normalized, $options: 'i' };
+          orText.push(
+            { 'providerProfile.businessName': phraseRegex },
+            { 'providerProfile.description': phraseRegex },
+            { 'providerProfile.businessDescription': phraseRegex }
+          );
         }
-        
-        // Búsqueda por palabras clave comunes con análisis NLP profundo
-        // Incluye verbos de acción, necesidades, problemas y contextos
-        const keywords = {
-          // Plomería - acciones, problemas, elementos
-          'plomero|plomería|fontanero|agua|tubería|caño|fuga|filtración|goteo|gotear|tapar|destapa|desatora|inodoro|baño|lavabo|grifo|ducha|regadera|cañería|drenaje|desagüe|instalación agua|reparar tubería|arreglar fuga|necesito plomero|tengo fuga|problema agua|cambiar tubería|instalar lavabo': 'Plomería',
-          
-          // Electricidad - instalación, reparación, problemas
-          'electricista|electricidad|luz|cables|cable|interruptor|enchufe|toma|corriente|instalación eléctrica|apagón|cortocircuito|no hay luz|sin luz|cambiar enchufe|instalar lámpara|arreglar luz|reparar instalación|problema eléctrico|revisar instalación|breaker|fusible|voltaje|conexión|alumbrado': 'Electricidad',
-          
-          // Carpintería - elementos, trabajos, materiales
-          'carpintero|carpintería|madera|muebles|puerta|ventana|closet|armario|estante|librero|mesa|silla|reparar mueble|hacer mueble|instalar puerta|arreglar ventana|trabajos madera|diseño muebles|mueble medida|restaurar muebles': 'Carpintería',
-          
-          // Pintura - trabajos, áreas, acabados
-          'pintor|pintura|pared|barniz|decoración pintura|pintar casa|pintar habitación|pintar cuarto|pintar fachada|pintar exterior|pintar interior|acabados|empaste|resane|color|esmalte|látex|brocha|rodillo|necesito pintor': 'Pintura',
-          
-          // Limpieza - tipos, áreas, servicios
-          'limpieza|limpiar|aseo|desinfección|limpiador|sanitizar|sanitización|limpiar casa|limpiar oficina|limpieza profunda|limpieza hogar|servicio limpieza|personal limpieza|hacer limpieza|necesito limpieza|aspirar|trapear|lavar|pulir|brillar': 'Limpieza',
-          
-          // Jardinería - servicios, plantas, mantenimiento
-          'jardinero|jardinería|jardín|poda|podar|césped|pasto|cortar pasto|plantas|regar|riego|mantenimiento jardín|diseño jardín|plantar|sembrar|fertilizar|abono|árboles|flores|macetas|tierra': 'Jardinería',
-          
-          // Cerrajería - servicios, problemas
-          'cerrajero|cerradura|llave|candado|puerta|cerrar|abrir|cambiar cerradura|hacer llave|duplicar llave|me quedé afuera|perdí llave|puerta trabada|no abre puerta|chapas|instalación cerradura': 'Cerrajería',
-          
-          // Albañilería - construcción, reparación
-          'albañil|albañilería|construcción|pared|muro|cemento|ladrillo|block|mampostería|levantar pared|hacer cuarto|ampliar casa|reparar pared|grieta|resane|construir|obra gris|cimientos|columna': 'Albañilería',
-          
-          // Electrodomésticos - tipos, problemas
-          'electrodomésticos|reparación electrodomésticos|lavadora|refrigerador|nevera|heladera|estufa|cocina|horno|microondas|licuadora|cafetera|no funciona|no prende|no enfría|hace ruido|reparar lavadora|arreglar nevera|técnico electrodomésticos': 'Reparación de electrodomésticos',
-          
-          // Aire acondicionado - instalación, mantenimiento
-          'aire acondicionado|clima|climatización|refrigeración|instalar aire|mantenimiento aire|reparar aire|recarga gas|limpieza aire|no enfría|hace ruido|minisplit|central|ventilación': 'Instalación de aire acondicionado',
-          
-          // Mudanzas - servicio, transporte
-          'mudanza|mudanzas|mudarme|transporte|trasladar|embalaje|empaque|embalar|cargar|descargar|flete|camión mudanza|servicio mudanza|transportar muebles|cambio casa|cambio oficina': 'Mudanzas',
-          
-          // Fumigación - plagas, control
-          'fumigación|fumigar|plagas|insectos|cucarachas|hormigas|ratones|ratas|chinches|termitas|control plagas|eliminar plagas|desinfección|desinsectación|exterminador|veneno|químicos': 'Fumigación',
-          
-          // Tecnología - dispositivos, problemas, servicios
-          'tecnología|informática|computadora|computador|ordenador|pc|laptop|portátil|computador|reparar computadora|arreglar pc|lento|virus|no prende|pantalla rota|formatear|instalar windows|respaldo|datos|software|hardware|internet|wifi|red|impresora|scanner': 'Tecnología e informática',
-          
-          // Clases - materias, niveles
-          'clases|clase|profesor|profesora|maestro|maestra|tutor|tutora|enseñanza|educación|enseñar|aprender|matemáticas|inglés|física|química|primaria|secundaria|preparatoria|universidad|tarea|examen|regularización|apoyo escolar': 'Clases particulares',
-          
-          // Belleza - servicios, tratamientos
-          'belleza|estética|peluquería|salón|cabello|pelo|corte|tinte|color|mechas|alaciado|peinado|maquillaje|uñas|manicure|pedicure|depilación|facial|masaje|spa|estilista': 'Belleza y estética',
-          
-          // Mecánica - vehículos, servicios
-          'mecánica|mecánico|auto|automóvil|carro|coche|vehículo|motor|reparar auto|arreglar carro|afinación|cambio aceite|frenos|suspensión|transmisión|no arranca|hace ruido|humo|revisión|servicio|taller': 'Mecánica automotriz',
-          
-          // Fotografía - eventos, tipos
-          'fotografía|fotógrafo|foto|fotografías|sesión fotográfica|sesión fotos|imagen|fotografiar|boda|quinceañera|evento|fiesta|cumpleaños|producto|retrato|estudio fotográfico|book|portafolio': 'Fotografía',
-          
-          // Catering - eventos, comida
-          'catering|comida|banquete|evento|fiesta|boda|cumpleaños|cocina|cocinero|chef|servicio comida|buffet|bocadillos|menú|alimentos|bebidas|meseros': 'Catering',
-          
-          // Construcción - proyectos, obras
-          'construcción|construir|construcciones|constructor|edificar|obra|proyecto|casa|edificio|remodelación|remodelar|ampliar|ampliación|renovar|renovación|hacer casa|construir casa|proyecto construcción': 'Construcción',
-          
-          // Decoración - diseño, ambientes
-          'decoración|decorador|decoradora|decorar|interior|diseño interior|interiorismo|ambientar|amueblar|diseño espacios|renovar casa|cambiar decoración|diseñador interiores|cortinas|muebles|colores': 'Decoración',
-          
-          // Diseño gráfico - servicios, productos
-          'diseño gráfico|diseñador gráfico|diseñadora|logo|logotipo|crear logo|diseño logo|branding|marca|identidad|publicidad|flyer|cartel|banner|tarjetas|diseño web|imagen corporativa|ilustración': 'Diseño gráfico',
-          
-          // Legal - servicios, trámites
-          'legal|abogado|abogada|licenciado|derecho|asesoría legal|asesor legal|jurídico|demanda|juicio|contrato|trámite|documento|notario|divorcios|herencias|laboral|penal|civil|consulta legal': 'Asesoría legal',
-          
-          // Contabilidad - servicios, declaraciones
-          'contabilidad|contador|contadora|contable|impuestos|declaración|fiscal|financiero|finanzas|empresa|negocio|sat|facturación|nómina|auditoría|estados financieros|cálculo impuestos': 'Contabilidad',
-          
-          // Marketing - estrategias, medios
-          'marketing|marketing digital|mercadotecnia|publicidad|anuncios|redes sociales|facebook|instagram|social media|community manager|seo|posicionamiento|google|ads|campaña|estrategia|contenido|viral': 'Marketing digital',
-          
-          // Traducción - idiomas, documentos
-          'traducción|traductor|traductora|traducir|idiomas|idioma|inglés|francés|alemán|chino|japonés|interpretación|intérprete|documento|traducir documento|certificada|jurada|simultánea': 'Traducción'
-        };
-        
-        // Búsqueda por palabras clave y contexto
-        const matchedCategories = new Set();
-        for (const [keywordPattern, categoryName] of Object.entries(keywords)) {
-          const keywordRegex = new RegExp(keywordPattern, 'i');
-          if (keywordRegex.test(searchText)) {
-            console.log(`🔑 Keyword match: "${searchText}" -> ${categoryName}`);
-            matchedCategories.add(categoryName);
-            // Buscar solo en el servicio principal (primer elemento)
-            orText.push({ 'providerProfile.services.0.category': categoryName });
-          }
-        }
-        
-        // Análisis de frases comunes en lenguaje natural
-        const commonPhrases = {
-          'necesito|requiero|busco|quiero': 'acción_búsqueda',
-          'tengo un problema|tengo problema|problema con|está roto|no funciona|se rompió|se dañó': 'problema',
-          'instalar|instalación|colocar|poner': 'instalación',
-          'reparar|arreglar|componer|reparación|arreglo': 'reparación',
-          'cambiar|reemplazar|sustituir|cambio': 'cambio',
-          'hacer|construir|crear': 'construcción',
-          'limpiar|limpieza de': 'limpieza',
-          'pintar|pintado de': 'pintura',
-          'revisar|revisión|checar|verificar': 'diagnóstico'
-        };
-        
-        let detectedAction = null;
-        for (const [phrasePattern, actionType] of Object.entries(commonPhrases)) {
-          const phraseRegex = new RegExp(phrasePattern, 'i');
-          if (phraseRegex.test(searchText)) {
-            detectedAction = actionType;
-            console.log(`💡 Detected action: ${actionType}`);
-            break;
-          }
-        }
-        
-        // Si se detectó una acción pero no categorías, expandir búsqueda
-        if (detectedAction && matchedCategories.size === 0) {
-          console.log(`🔍 Expanding search based on action: ${detectedAction}`);
-          // Buscar con más énfasis en descripciones
-          words.forEach(word => {
-            if (word.length > 3) {
-              const wordRegex = { $regex: word, $options: 'i' };
-              orText.push(
-                { 'providerProfile.services.description': wordRegex },
-                { 'providerProfile.businessDescription': wordRegex }
-              );
-            }
+
+        // 4. Si no se encontraron categorías, buscar también en address y firstName
+        if (matchedCategories.size === 0 && words.length > 0) {
+          words.slice(0, 3).forEach(word => {
+            if (word.length < 3) return;
+            const wordRegex = { $regex: word, $options: 'i' };
+            orText.push(
+              { 'profile.firstName': wordRegex },
+              { 'providerProfile.serviceArea.address': wordRegex }
+            );
           });
         }
-        
-        if (matchedCategories.size > 0) {
-          console.log(`✅ Total matched categories: ${matchedCategories.size} - ${Array.from(matchedCategories).join(', ')}`);
+      }
+
+      // 5. Búsqueda por ubicación (texto) — filtro en address/zones
+      if (locationQuery && String(locationQuery).trim().length > 0) {
+        const locText = String(locationQuery).trim();
+        const locRegex = { $regex: locText, $options: 'i' };
+        // Agregar como condición AND si hay texto, o como OR si no hay
+        if (orText.length > 0) {
+          // Combinamos: resultados deben coincidir con texto Y estar en la ubicación
+          base.$or = orText;
+          base.$and = base.$and || [];
+          base.$and.push({
+            $or: [
+              { 'providerProfile.serviceArea.address': locRegex },
+              { 'providerProfile.serviceArea.zones': locRegex }
+            ]
+          });
+          orText = []; // Ya movido a base
+        } else {
+          orText.push(
+            { 'providerProfile.serviceArea.address': locRegex },
+            { 'providerProfile.serviceArea.zones': locRegex }
+          );
         }
       }
 
       let docs = [];
-      
+
       if (hasCoords) {
         docs = await Provider.find({
           ...base,
@@ -254,10 +171,7 @@ class GuestController {
         }).select(select).limit(lim).lean();
       }
 
-      console.log(`🔍 Found ${docs.length} providers for query: "${q || 'all'}" (category: ${category || 'all'})`);
-      if (docs.length > 0 && q) {
-        console.log(`✅ Sample match: ${docs[0].providerProfile?.businessName || 'N/A'}`);
-      }
+      console.log(`🔍 Found ${docs.length} providers for: "${q || 'all'}" (category: ${category || 'all'}, location: ${locationQuery || 'all'})`);
 
       // Calcular score para cada proveedor
       const providersWithScore = await Promise.all(
@@ -284,7 +198,10 @@ class GuestController {
 
       res.json({
         success: true,
-        data: { providers: providersWithScore }
+        data: {
+          providers: providersWithScore,
+          detectedCategories // Devolver categorías detectadas al frontend
+        }
       });
     } catch (error) {
       console.error('GuestController - searchProvidersPublic error:', error);

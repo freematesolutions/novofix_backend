@@ -39,6 +39,7 @@ async function run() {
 					email: email.toLowerCase().trim(),
 					password,
 					isActive: true,
+					emailVerified: true, // Admin creado por script no necesita verificación por email
 					profile: { firstName, lastName }
 				});
 			await user.save();
@@ -60,6 +61,7 @@ async function run() {
 						email: user.email,
 						password: reset ? password : user.password, // if resetting, set new password
 						isActive: true,
+						emailVerified: true, // Admin creado por script no necesita verificación por email
 						profile: user.profile || { firstName, lastName }
 					});
 					await adminDoc.save();
@@ -67,6 +69,7 @@ async function run() {
 					changed = false; // already saved
 				}
 			if (user.isActive !== true) { user.isActive = true; changed = true; }
+			if (user.emailVerified !== true) { user.emailVerified = true; changed = true; }
 			if (reset) {
 				user.password = password; // will be hashed by pre-save hook
 				changed = true;

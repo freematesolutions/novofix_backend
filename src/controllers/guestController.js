@@ -350,7 +350,7 @@ class GuestController {
       // 1. Obtener reseñas de CLIENTES con fotos en la reseña
       const reviewsWithPhotos = await Review.find({
         status: 'active',
-        'rating.overall': { $gte: 4 },
+        'rating.overall': { $gte: 1 },
         'review.photos': { $exists: true, $ne: [] }
       })
       .sort({ 'rating.overall': -1, createdAt: -1 })
@@ -373,7 +373,7 @@ class GuestController {
       // 2. Obtener reseñas de CLIENTES con feedback de plataforma
       const clientPlatformTestimonials = await Review.find({
         status: 'active',
-        'platformFeedback.rating': { $gte: 4 },
+        'platformFeedback.rating': { $gte: 1 },
         'platformFeedback.comment': { $exists: true, $ne: '' }
       })
       .sort({ 'platformFeedback.rating': -1, createdAt: -1 })
@@ -395,7 +395,7 @@ class GuestController {
 
       // 3. Obtener reseñas de PROFESIONALES (ClientReview) con feedback de plataforma
       const providerPlatformTestimonials = await ClientReview.find({
-        'platformFeedback.rating': { $gte: 4 },
+        'platformFeedback.rating': { $gte: 1 },
         'platformFeedback.comment': { $exists: true, $ne: '' }
       })
       .sort({ 'platformFeedback.rating': -1, createdAt: -1 })
@@ -413,10 +413,10 @@ class GuestController {
       .populate('client', 'profile.firstName profile.avatar')
       .lean();
 
-      // 3.5. Obtener reseñas normales de clientes (sin fotos ni platformFeedback) con alta calificación
+      // 3.5. Obtener reseñas normales de clientes (con cualquier calificación)
       const regularClientReviews = await Review.find({
         status: 'active',
-        'rating.overall': { $gte: 4 },
+        'rating.overall': { $gte: 1 },
         'review.comment': { $exists: true, $ne: '' }
       })
       .sort({ 'rating.overall': -1, createdAt: -1 })
@@ -469,7 +469,7 @@ class GuestController {
       // 5. También buscar reviews sin fotos pero cuyos bookings SÍ tienen evidencias
       const reviewsWithBookingEvidence = await Review.find({
         status: 'active',
-        'rating.overall': { $gte: 4 },
+        'rating.overall': { $gte: 1 },
         booking: { $in: Array.from(evidenceMap.keys()).map(id => new mongoose.Types.ObjectId(id)) },
         $or: [
           { 'review.photos': { $exists: false } },
@@ -689,7 +689,7 @@ class GuestController {
       const providersWithPortfolio = await Provider.find({
         isActive: true,
         'providerProfile.portfolio.0': { $exists: true },
-        'providerProfile.rating.average': { $gte: 4 }
+        'providerProfile.rating.average': { $gte: 1 }
       })
       .sort({ 
         'subscription.plan': -1, 

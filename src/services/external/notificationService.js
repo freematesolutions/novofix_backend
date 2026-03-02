@@ -227,6 +227,20 @@ class NotificationService {
           }
         };
 
+      case 'REQUEST_UPDATED':
+        return {
+          ...baseData,
+          subject: 'Solicitud actualizada 📝',
+          message: `El cliente ha actualizado los detalles de la solicitud "${serviceRequest?.basicInfo?.title || ''}"`,
+          actionUrl: serviceRequest ? `/empleos/${serviceRequest._id}` : '/empleos',
+          priority: 'medium',
+          extraData: {
+            requestTitle: extra?.requestTitle || serviceRequest?.basicInfo?.title || '',
+            category: extra?.category || serviceRequest?.basicInfo?.category || '',
+            serviceRequestId: serviceRequest?._id || ''
+          }
+        };
+
       default:
         return baseData;
     }

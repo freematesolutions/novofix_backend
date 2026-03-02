@@ -4,6 +4,7 @@ import Chat from '../models/Communication/Chat.js';
 import Message from '../models/Communication/Message.js';
 import Booking from '../models/Service/Booking.js';
 import Proposal from '../models/Service/Proposal.js';
+import User from '../models/User/User.js';
 import Client from '../models/User/Client.js';
 import Provider from '../models/User/Provider.js';
 import { getIO } from '../config/socket.js';
@@ -41,8 +42,8 @@ class ChatController {
       // Buscar chat existente para esta propuesta
       let chat = await Chat.findOne({
         proposal: proposalId
-      }).populate('participants.client', 'profile')
-        .populate('participants.provider', 'providerProfile')
+      }).populate('participants.client', 'profile providerProfile')
+        .populate('participants.provider', 'profile providerProfile')
         .populate('lastMessage');
 
       if (!chat) {
@@ -86,8 +87,8 @@ class ChatController {
 
         // Re-populate después de guardar
         chat = await Chat.findById(chat._id)
-          .populate('participants.client', 'profile')
-          .populate('participants.provider', 'providerProfile')
+          .populate('participants.client', 'profile providerProfile')
+          .populate('participants.provider', 'profile providerProfile')
           .populate('lastMessage');
       }
 
@@ -150,8 +151,8 @@ class ChatController {
         'participants.provider': req.user._id,
         serviceRequest: requestId,
         chatType: 'info_request'
-      }).populate('participants.client', 'profile')
-        .populate('participants.provider', 'providerProfile')
+      }).populate('participants.client', 'profile providerProfile')
+        .populate('participants.provider', 'profile providerProfile')
         .populate('lastMessage');
 
       if (!chat) {
@@ -232,8 +233,8 @@ class ChatController {
 
       // Re-populate
       chat = await Chat.findById(chat._id)
-        .populate('participants.client', 'profile')
-        .populate('participants.provider', 'providerProfile')
+        .populate('participants.client', 'profile providerProfile')
+        .populate('participants.provider', 'profile providerProfile')
         .populate('lastMessage');
 
       res.json({
@@ -460,13 +461,13 @@ class ChatController {
         .limit(parseInt(limit))
         .lean();
 
-      // Manually populate sender for messages with valid senderModel to avoid refPath issues
+      // Manually populate sender using base User model to handle multi-role users
+      // (discriminated Client/Provider.findById fails when user's __t doesn't match senderModel)
       const populatedMessages = await Promise.all(
         messages.map(async (msg) => {
           if (msg.sender && msg.senderModel && msg.senderModel !== 'System') {
             try {
-              const Model = msg.senderModel === 'Provider' ? Provider : Client;
-              const senderData = await Model.findById(msg.sender)
+              const senderData = await User.findById(msg.sender)
                 .select('profile providerProfile')
                 .lean();
               return { ...msg, sender: senderData };
@@ -549,17 +550,40 @@ class ChatController {
       }
 
       const chats = await Chat.find(query)
-        .populate('participants.client', 'profile')
-        .populate('participants.provider', 'providerProfile')
+        .populate('participants.client', 'profile providerProfile')
+        .populate('participants.provider', 'profile providerProfile')
         .populate('booking', 'basicInfo status')
         .populate('proposal', 'pricing message status')
         .populate('serviceRequest', 'basicInfo status')
         .populate('lastMessage')
         .sort({ 'metadata.lastActivity': -1 });
 
+      // Re-populate participants that failed due to discriminator mismatch
+      // (e.g., a Provider-type user stored as participants.client)
+      const populatedChats = await Promise.all(chats.map(async (chat) => {
+        const chatObj = chat.toObject();
+        if (chatObj.participants?.client && !chatObj.participants.client.profile) {
+          try {
+            const clientData = await User.findById(chatObj.participants.client._id || chatObj.participants.client)
+              .select('profile providerProfile')
+              .lean();
+            if (clientData) chatObj.participants.client = clientData;
+          } catch { /* ignore */ }
+        }
+        if (chatObj.participants?.provider && !chatObj.participants.provider.providerProfile) {
+          try {
+            const providerData = await User.findById(chatObj.participants.provider._id || chatObj.participants.provider)
+              .select('profile providerProfile')
+              .lean();
+            if (providerData) chatObj.participants.provider = providerData;
+          } catch { /* ignore */ }
+        }
+        return chatObj;
+      }));
+
       res.json({
         success: true,
-        data: { chats }
+        data: { chats: populatedChats }
       });
     } catch (error) {
       console.error('ChatController - getUserChats error:', error);

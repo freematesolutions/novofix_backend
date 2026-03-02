@@ -303,6 +303,67 @@ class RequestController {
       }
 
       await sr.save();
+
+      // Notificar a proveedores que ya tienen propuestas o fueron notificados (solo si está publicada)
+      if (sr.status === 'published') {
+        try {
+          // Recopilar IDs de proveedores involucrados
+          const providerIds = new Set();
+
+          // Proveedores con propuestas
+          if (Array.isArray(sr.proposals) && sr.proposals.length > 0) {
+            const populatedSr = await ServiceRequest.findById(sr._id)
+              .populate({ path: 'proposals', select: 'provider' })
+              .lean();
+            if (populatedSr?.proposals) {
+              populatedSr.proposals.forEach(p => {
+                if (p.provider) providerIds.add(String(p.provider));
+              });
+            }
+          }
+
+          // Proveedores elegibles que fueron notificados
+          if (Array.isArray(sr.eligibleProviders)) {
+            sr.eligibleProviders.forEach(ep => {
+              if (ep.provider && ep.notified) providerIds.add(String(ep.provider));
+            });
+          }
+
+          // Proveedores seleccionados
+          if (Array.isArray(sr.selectedProviders)) {
+            sr.selectedProviders.forEach(sp => {
+              if (sp) providerIds.add(String(sp));
+            });
+          }
+
+          // Enviar notificación a cada proveedor involucrado
+          const providerArray = [...providerIds];
+          if (providerArray.length > 0) {
+            await Promise.allSettled(
+              providerArray.map(providerId =>
+                notificationService.sendProviderNotification({
+                  providerId,
+                  serviceRequestId: sr._id,
+                  type: 'REQUEST_UPDATED',
+                  priority: 'medium',
+                  data: {
+                    requestTitle: sr.basicInfo?.title || '',
+                    category: sr.basicInfo?.category || ''
+                  }
+                })
+              )
+            );
+
+            // Emitir actualización de contadores a proveedores
+            try {
+              emitter.emitCountersUpdateToUsers(providerArray, { reason: 'request_updated' });
+            } catch {/* ignore */}
+          }
+        } catch (notifError) {
+          console.warn('[RequestController] Failed to notify providers on request update:', notifError.message);
+        }
+      }
+
       res.json({ success: true, message: 'Service request updated', data: { request: sr } });
     } catch (error) {
       console.error('RequestController - updateServiceRequest error:', error);

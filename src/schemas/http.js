@@ -2,7 +2,7 @@
 import Joi from 'joi';
 import { SERVICE_CATEGORIES } from '../config/categories.js';
 
-const categories = SERVICE_CATEGORIES; // Usar las 26 categorías sincronizadas
+const categories = SERVICE_CATEGORIES; // Usar las 16 categorías sincronizadas
 const urgencies = ['immediate', 'scheduled'];
 
 export const objectIdParam = Joi.object({

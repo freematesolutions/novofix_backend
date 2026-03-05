@@ -1,64 +1,78 @@
-// Lista maestra de categorías de servicios
+// Lista maestra de categorías de servicios (22 categorías)
 // Sincronizada con frontend (client/src/utils/categories.js)
 
 export const SERVICE_CATEGORIES = [
+  'Reparaciones',
   'Plomería',
   'Electricidad',
-  'Carpintería',
-  'Pintura',
-  'Limpieza',
-  'Jardinería',
+  'Climatización',
   'Cerrajería',
-  'Albañilería',
-  'Reparación de electrodomésticos',
-  'Instalación de aire acondicionado',
-  'Mudanzas',
-  'Fumigación',
-  'Tecnología e informática',
-  'Clases particulares',
-  'Belleza y estética',
-  'Mecánica automotriz',
-  'Fotografía',
-  'Catering',
+  'Mantenimiento',
+  'Control de Plagas',
+  'Limpieza',
+  'Pintura',
+  'Gabinetes',
+  'Pisos',
+  'Cocina',
+  'Remodelación',
+  'Jardinería',
+  'Piscinas',
+  'Techado',
+  'Cercas',
+  'Pérgolas',
+  'Ventanas',
   'Construcción',
-  'Decoración',
-  'Diseño gráfico',
-  'Asesoría legal',
-  'Contabilidad',
-  'Marketing digital',
-  'Traducción',
-  'Otro'
+  'Mudanzas',
+  'Seguridad'
 ];
+
+// Mapa de migración: claves antiguas → claves nuevas
+// Usado para compatibilidad con datos existentes en la BD
+export const CATEGORY_MIGRATION_MAP = {
+  'Handiman': 'Reparaciones',
+  'Plumb': 'Plomería',
+  'Electricista': 'Electricidad',
+  'HVAC': 'Climatización',
+  'Cerrajeria': 'Cerrajería',
+  'Control de plagas': 'Control de Plagas',
+  'Carpintería': 'Gabinetes',
+  'Piscina': 'Piscinas'
+};
+
+/**
+ * Normaliza una categoría antigua al nuevo nombre
+ * @param {string} category - Nombre de categoría (puede ser antiguo o nuevo)
+ * @returns {string} Nombre normalizado de la categoría
+ */
+export function normalizeCategory(category) {
+  return CATEGORY_MIGRATION_MAP[category] || category;
+}
 
 // Categorías con descripción (para UI y API)
 function getCategoryDescription(category) {
   const descriptions = {
-    'Plomería': 'Instalación y reparación de sistemas de agua y drenaje',
-    'Electricidad': 'Instalaciones eléctricas, reparaciones y mantenimiento',
-    'Carpintería': 'Muebles, estructuras de madera y reparaciones',
-    'Pintura': 'Pintura interior y exterior, revestimientos',
-    'Limpieza': 'Limpieza profunda, mantenimiento regular',
-    'Jardinería': 'Diseño, mantenimiento de jardines y áreas verdes',
-    'Cerrajería': 'Apertura de puertas, instalación de cerraduras',
-    'Albañilería': 'Construcción, remodelación, reparaciones estructurales',
-    'Reparación de electrodomésticos': 'Reparación de lavadoras, refrigeradores, etc.',
-    'Instalación de aire acondicionado': 'Instalación, mantenimiento y reparación',
-    'Mudanzas': 'Transporte y logística de mudanzas',
-    'Fumigación': 'Control de plagas y desinfección',
-    'Tecnología e informática': 'Soporte técnico, reparación de computadoras',
-    'Clases particulares': 'Educación personalizada en diversas materias',
-    'Belleza y estética': 'Servicios de belleza, peluquería, estética',
-    'Mecánica automotriz': 'Reparación y mantenimiento de vehículos',
-    'Fotografía': 'Fotografía profesional para eventos y productos',
-    'Catering': 'Servicio de comidas para eventos',
-    'Construcción': 'Proyectos de construcción y remodelación',
-    'Decoración': 'Diseño de interiores y decoración',
-    'Diseño gráfico': 'Diseño de logotipos, branding, publicidad',
-    'Asesoría legal': 'Consultoría legal y representación',
-    'Contabilidad': 'Servicios contables y fiscales',
-    'Marketing digital': 'Estrategias de marketing online',
-    'Traducción': 'Servicios de traducción e interpretación',
-    'Otro': 'Otros servicios profesionales'
+    'Reparaciones': 'Soluciones hoy mismo',
+    'Plomería': 'Cero fugas, cero estrés',
+    'Electricidad': 'Energía segura',
+    'Climatización': 'Tu clima perfecto',
+    'Cerrajería': 'Acceso y seguridad',
+    'Mantenimiento': 'Siempre impecable',
+    'Control de Plagas': '100% protegido',
+    'Limpieza': 'Brillo total',
+    'Pintura': 'Acabados de lujo',
+    'Gabinetes': 'Diseños a medida',
+    'Pisos': 'Pisadas con elegancia',
+    'Cocina': 'Equipamiento y confort',
+    'Remodelación': 'Estrena tu casa',
+    'Jardinería': 'Jardines de revista',
+    'Piscinas': 'Oasis cristalino',
+    'Techado': 'Cobertura de nivel',
+    'Cercas': 'Privacidad con estilo',
+    'Pérgolas': 'Sombra y estilo',
+    'Ventanas': 'Vistas de impacto',
+    'Construcción': 'Estructuras garantizadas',
+    'Mudanzas': 'Traslados seguros',
+    'Seguridad': 'Protección garantizada'
   };
   return descriptions[category] || '';
 }

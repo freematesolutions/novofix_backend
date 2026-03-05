@@ -58,11 +58,39 @@ export function isFuzzyMatch(a, b, maxDist = 2) {
 }
 
 /**
- * Diccionario bilingüe de keywords por categoría
+ * Diccionario bilingüe de keywords por categoría (22 categorías)
  * Estructura: { category: { es: [...], en: [...] } }
  * Incluye: nombres directos, sinónimos, objetos relacionados, problemas comunes, frases contextuales
  */
 export const SEARCH_KEYWORDS = {
+  'Reparaciones': {
+    es: [
+      'handiman', 'handyman', 'todero', 'multiservicio', 'manitas',
+      'reparaciones', 'arreglos', 'pequeñas reparaciones', 'trabajos menores',
+      'montar', 'colgar', 'instalar', 'reparar', 'arreglar',
+      'estante', 'estantes', 'repisa', 'cuadro', 'cuadros', 'cortina', 'cortinas',
+      'persiana', 'persianas', 'puerta', 'ventana', 'bisagra', 'bisagras',
+      'manija', 'pomo', 'tornillo', 'tornillos', 'clavo', 'clavos',
+      'goteo', 'ajuste', 'ajustar', 'nivel', 'nivelar',
+      // Frases contextuales
+      'arreglos generales', 'reparaciones menores', 'trabajos casa',
+      'colgar cuadro', 'montar mueble', 'instalar estante', 'ajustar puerta',
+      'reparar bisagra', 'pequeño arreglo', 'necesito arreglar'
+    ],
+    en: [
+      'handyman', 'handiman', 'jack of all trades', 'odd jobs', 'fix it',
+      'repairs', 'minor repairs', 'small repairs', 'home repairs',
+      'mount', 'hang', 'install', 'fix', 'repair', 'adjust',
+      'shelf', 'shelves', 'picture', 'curtain', 'curtains',
+      'blind', 'blinds', 'door', 'window', 'hinge', 'hinges',
+      'handle', 'knob', 'screw', 'screws', 'nail', 'nails',
+      'drip', 'dripping', 'level', 'leveling',
+      // Contextual phrases
+      'general repairs', 'minor fixes', 'home fixes',
+      'hang picture', 'mount shelf', 'install shelf', 'fix door',
+      'repair hinge', 'small fix', 'need fixing', 'odd job'
+    ]
+  },
   'Plomería': {
     es: [
       'plomero', 'plomeria', 'fontanero', 'fontaneria', 'agua', 'tuberia', 'tuberias', 'cano', 'canos',
@@ -109,29 +137,28 @@ export const SEARCH_KEYWORDS = {
       'install light', 'fix wiring', 'change outlet', 'repair switch'
     ]
   },
-  'Carpintería': {
+  'Limpieza': {
     es: [
-      'carpintero', 'carpinteria', 'madera', 'mueble', 'muebles', 'puerta', 'puertas',
-      'ventana', 'ventanas', 'closet', 'closets', 'armario', 'armarios',
-      'estante', 'estantes', 'librero', 'libreros', 'mesa', 'mesas', 'silla', 'sillas',
-      'gabinete', 'gabinetes', 'cocina integral', 'piso madera', 'duela', 'parquet',
-      'pergola', 'deck', 'moldura', 'molduras', 'marco', 'marcos',
-      'tablon', 'tablones', 'contrachapado', 'triplay', 'mdf',
+      'limpieza', 'limpiar', 'limpiador', 'aseo', 'asear',
+      'desinfeccion', 'desinfectar', 'sanitizar', 'sanitizacion',
+      'aspirar', 'trapear', 'barrer', 'pulir', 'brillar', 'lavar',
+      'detergente', 'domestico', 'domestica', 'mucama', 'empleada hogar',
+      'lavanderia', 'planchar', 'planchado',
       // Frases contextuales
-      'reparar mueble', 'hacer mueble', 'instalar puerta', 'arreglar ventana',
-      'trabajos madera', 'mueble medida', 'restaurar mueble', 'mesa rota',
-      'puerta rota', 'silla rota', 'mueble danado'
+      'limpiar casa', 'limpiar oficina', 'limpiar departamento',
+      'limpieza profunda', 'limpieza hogar', 'servicio limpieza',
+      'personal limpieza', 'hacer limpieza', 'necesito limpieza',
+      'limpieza post obra', 'limpieza mudanza'
     ],
     en: [
-      'carpenter', 'carpentry', 'wood', 'wooden', 'woodwork', 'woodworking',
-      'furniture', 'door', 'doors', 'window', 'windows', 'closet', 'closets',
-      'cabinet', 'cabinets', 'shelf', 'shelves', 'bookshelf', 'bookcase',
-      'table', 'chair', 'desk', 'wardrobe', 'dresser', 'nightstand',
-      'deck', 'pergola', 'molding', 'trim', 'frame', 'hardwood', 'plywood',
+      'cleaning', 'clean', 'cleaner', 'housekeeper', 'housekeeping', 'maid',
+      'janitor', 'janitorial', 'sanitation', 'sanitize', 'disinfect', 'disinfection',
+      'vacuum', 'mop', 'sweep', 'polish', 'scrub', 'wash', 'dust', 'dusting',
+      'laundry', 'ironing',
       // Contextual phrases
-      'fix furniture', 'repair door', 'broken table', 'broken chair',
-      'custom furniture', 'install door', 'fix window', 'damaged wood',
-      'build shelf', 'wooden floor'
+      'clean house', 'clean office', 'clean apartment',
+      'deep cleaning', 'house cleaning', 'cleaning service',
+      'spring cleaning', 'move out cleaning', 'post construction cleaning'
     ]
   },
   'Pintura': {
@@ -158,49 +185,214 @@ export const SEARCH_KEYWORDS = {
       'peeling paint', 'wall damage'
     ]
   },
-  'Limpieza': {
+  'Gabinetes': {
     es: [
-      'limpieza', 'limpiar', 'limpiador', 'aseo', 'asear',
-      'desinfeccion', 'desinfectar', 'sanitizar', 'sanitizacion',
-      'aspirar', 'trapear', 'barrer', 'pulir', 'brillar', 'lavar',
-      'detergente', 'domestico', 'domestica', 'mucama', 'empleada hogar',
+      'gabinete', 'gabinetes', 'armario', 'armarios', 'closet', 'closets',
+      'alacena', 'alacenas', 'mueble cocina', 'mueble bano',
+      'puerta gabinete', 'bisagra', 'bisagras', 'tirador', 'tiradores',
+      'herraje', 'herrajes', 'cajon', 'cajones', 'repisa', 'repisas',
+      'estante', 'estantes', 'vestidor', 'organizador',
+      'laminado', 'melamina', 'madera', 'mdf', 'lacar', 'lacado',
       // Frases contextuales
-      'limpiar casa', 'limpiar oficina', 'limpiar departamento',
-      'limpieza profunda', 'limpieza hogar', 'servicio limpieza',
-      'personal limpieza', 'hacer limpieza', 'necesito limpieza',
-      'limpieza post obra', 'limpieza mudanza'
+      'instalar gabinetes', 'reparar gabinetes', 'cambiar puertas gabinete',
+      'gabinetes cocina', 'gabinetes bano', 'hacer closet', 'closet medida',
+      'renovar gabinetes', 'pintar gabinetes', 'actualizar herraje'
     ],
     en: [
-      'cleaning', 'clean', 'cleaner', 'housekeeper', 'housekeeping', 'maid',
-      'janitor', 'janitorial', 'sanitation', 'sanitize', 'disinfect', 'disinfection',
-      'vacuum', 'mop', 'sweep', 'polish', 'scrub', 'wash', 'dust', 'dusting',
+      'cabinet', 'cabinets', 'cabinetry', 'closet', 'closets', 'wardrobe',
+      'pantry', 'cupboard', 'shelving', 'storage',
+      'cabinet door', 'hinge', 'hinges', 'handle', 'handles', 'knob', 'knobs',
+      'hardware', 'drawer', 'drawers', 'shelf', 'shelves', 'organizer',
+      'laminate', 'melamine', 'wood', 'mdf', 'lacquer',
       // Contextual phrases
-      'clean house', 'clean office', 'clean apartment',
-      'deep cleaning', 'house cleaning', 'cleaning service',
-      'spring cleaning', 'move out cleaning', 'post construction cleaning'
+      'install cabinets', 'repair cabinets', 'replace cabinet doors',
+      'kitchen cabinets', 'bathroom cabinets', 'build closet', 'custom closet',
+      'refinish cabinets', 'paint cabinets', 'update hardware'
     ]
   },
-  'Jardinería': {
+  'Mantenimiento': {
     es: [
-      'jardinero', 'jardineria', 'jardin', 'jardines', 'poda', 'podar',
-      'cesped', 'pasto', 'grama', 'planta', 'plantas', 'regar', 'riego',
-      'plantar', 'sembrar', 'fertilizar', 'fertilizante', 'abono',
-      'arbol', 'arboles', 'flor', 'flores', 'maceta', 'macetas', 'tierra',
-      'paisajismo', 'podadora', 'cortadora', 'seto', 'setos', 'enredadera',
+      'mantenimiento', 'mantener', 'preventivo', 'correctivo', 'servicio',
+      'revision', 'inspección', 'ajuste', 'ajustar', 'calibrar', 'calibracion',
+      'engranaje', 'lubricar', 'lubricacion', 'aceitar',
+      'general', 'periodico', 'rutina', 'programado',
+      'edificio', 'condominio', 'oficina', 'local', 'comercial',
+      'equipo', 'equipos', 'maquinaria', 'sistema', 'sistemas',
       // Frases contextuales
-      'cortar pasto', 'cortar cesped', 'mantenimiento jardin', 'diseño jardin',
-      'podar arboles', 'regar plantas', 'jardin descuidado'
+      'mantenimiento preventivo', 'mantenimiento correctivo', 'mantenimiento general',
+      'servicio mantenimiento', 'mantenimiento edificio', 'mantenimiento oficina',
+      'mantenimiento equipo', 'revision general', 'mantenimiento casa',
+      'mantenimiento periodico', 'plan mantenimiento'
     ],
     en: [
-      'gardener', 'gardening', 'garden', 'gardens', 'lawn', 'grass',
-      'pruning', 'prune', 'trim', 'trimming', 'mowing', 'mow',
-      'plant', 'plants', 'planting', 'watering', 'irrigation',
-      'fertilizer', 'fertilize', 'compost', 'soil',
-      'tree', 'trees', 'flower', 'flowers', 'hedge', 'hedges', 'bush', 'bushes',
-      'landscaping', 'landscape',
+      'maintenance', 'maintain', 'upkeep', 'preventive', 'corrective', 'service',
+      'inspection', 'adjust', 'adjustment', 'calibrate', 'calibration',
+      'gear', 'lubricate', 'lubrication', 'oil',
+      'general', 'periodic', 'routine', 'scheduled',
+      'building', 'condo', 'office', 'commercial', 'property',
+      'equipment', 'machinery', 'system', 'systems',
       // Contextual phrases
-      'mow lawn', 'cut grass', 'garden maintenance', 'trim hedges',
-      'plant flowers', 'overgrown yard', 'yard work'
+      'preventive maintenance', 'corrective maintenance', 'general maintenance',
+      'maintenance service', 'building maintenance', 'office maintenance',
+      'equipment maintenance', 'general inspection', 'home maintenance',
+      'periodic maintenance', 'maintenance plan'
+    ]
+  },
+  'Climatización': {
+    es: [
+      'hvac', 'aire acondicionado', 'minisplit', 'mini split', 'clima', 'climatizacion',
+      'refrigeracion', 'ventilacion', 'calefaccion', 'ac', 'aa',
+      'gas refrigerante', 'recarga gas', 'compresor', 'condensador', 'evaporador',
+      'ducto', 'ductos', 'termostato', 'control remoto',
+      'calenton', 'calentador', 'radiador', 'bomba calor',
+      // Frases contextuales
+      'instalar aire', 'mantenimiento aire', 'reparar aire', 'limpieza aire',
+      'no enfria', 'no calienta', 'tira agua', 'hace ruido', 'huele feo', 'huele mal',
+      'instalar calefaccion', 'sistema climatizacion'
+    ],
+    en: [
+      'hvac', 'air conditioning', 'air conditioner', 'ac', 'mini split', 'minisplit',
+      'cooling', 'heating', 'ventilation', 'duct', 'ducts', 'thermostat',
+      'refrigerant', 'compressor', 'condenser', 'evaporator',
+      'furnace', 'heat pump', 'heater', 'radiator', 'boiler',
+      // Contextual phrases
+      'install ac', 'ac repair', 'ac maintenance', 'ac not cooling',
+      'ac leaking', 'ac noisy', 'clean ac', 'ac service',
+      'install heating', 'heating system', 'hvac service'
+    ]
+  },
+  'Piscinas': {
+    es: [
+      'piscina', 'piscinas', 'alberca', 'albercas', 'pileta',
+      'agua piscina', 'cloro', 'cloracion', 'quimica agua', 'ph',
+      'bomba piscina', 'filtro piscina', 'filtro', 'filtros', 'skimmer',
+      'azulejo piscina', 'liner', 'revestimiento', 'jacuzzi', 'spa',
+      'limpieza piscina', 'aspiradora piscina', 'robot piscina',
+      'trampa pelo', 'calentador piscina', 'iluminacion piscina',
+      // Frases contextuales
+      'mantenimiento piscina', 'limpiar piscina', 'reparar piscina',
+      'construir piscina', 'agua verde', 'agua turbia', 'piscina sucia',
+      'instalar bomba piscina', 'cambiar filtro piscina', 'vaciar piscina'
+    ],
+    en: [
+      'pool', 'pools', 'swimming pool', 'swimming',
+      'chlorine', 'chlorination', 'water chemistry', 'ph',
+      'pool pump', 'pool filter', 'filter', 'filters', 'skimmer',
+      'pool tile', 'liner', 'resurfacing', 'jacuzzi', 'spa', 'hot tub',
+      'pool cleaning', 'pool vacuum', 'pool robot',
+      'pool heater', 'pool light', 'pool lighting',
+      // Contextual phrases
+      'pool maintenance', 'clean pool', 'repair pool',
+      'build pool', 'green water', 'cloudy water', 'dirty pool',
+      'install pool pump', 'change pool filter', 'drain pool'
+    ]
+  },
+  'Pérgolas': {
+    es: [
+      'pergola', 'pergolas', 'toldo', 'toldos', 'sombrilla', 'sombrillas',
+      'estructura exterior', 'sombra', 'cubierta exterior',
+      'terraza', 'terrazas', 'patio', 'patios', 'jardin', 'jardines',
+      'madera exterior', 'aluminio', 'policarbonato', 'lona',
+      'columna', 'columnas', 'viga', 'vigas', 'poste', 'postes',
+      'gazebo', 'cenador', 'kiosco', 'palapa',
+      // Frases contextuales
+      'instalar pergola', 'construir pergola', 'reparar pergola',
+      'pergola madera', 'pergola aluminio', 'pergola terraza',
+      'dar sombra', 'cubierta patio', 'techo terraza', 'proteccion solar'
+    ],
+    en: [
+      'pergola', 'pergolas', 'awning', 'awnings', 'canopy', 'shade',
+      'outdoor structure', 'shade structure', 'outdoor cover',
+      'terrace', 'patio', 'deck', 'garden', 'backyard',
+      'outdoor wood', 'aluminum', 'polycarbonate', 'canvas',
+      'column', 'columns', 'beam', 'beams', 'post', 'posts',
+      'gazebo', 'pavilion', 'arbor',
+      // Contextual phrases
+      'install pergola', 'build pergola', 'repair pergola',
+      'wood pergola', 'aluminum pergola', 'patio pergola',
+      'provide shade', 'patio cover', 'deck cover', 'sun protection'
+    ]
+  },
+  'Cercas': {
+    es: [
+      'cerca', 'cercas', 'cerco', 'cercos', 'valla', 'vallas', 'barda', 'bardas',
+      'reja', 'rejas', 'portón', 'portones', 'malla', 'malla ciclonica',
+      'alambre', 'alambrado', 'poste', 'postes', 'estaca', 'estacas',
+      'madera', 'hierro', 'acero', 'vinilo', 'metal',
+      'privacidad', 'seguridad', 'perimetral', 'perimetro',
+      // Frases contextuales
+      'instalar cerca', 'poner cerca', 'reparar cerca', 'cambiar cerca',
+      'cerca madera', 'cerca metal', 'cerca jardin', 'cerca perimetral',
+      'cercar terreno', 'delimitar propiedad', 'cerca rota', 'barda caida'
+    ],
+    en: [
+      'fence', 'fences', 'fencing', 'gate', 'gates',
+      'railing', 'railings', 'picket', 'picket fence',
+      'chain link', 'wire', 'post', 'posts', 'stake', 'stakes',
+      'wood', 'iron', 'steel', 'vinyl', 'metal', 'aluminum',
+      'privacy', 'security', 'perimeter', 'boundary',
+      // Contextual phrases
+      'install fence', 'build fence', 'repair fence', 'replace fence',
+      'wood fence', 'metal fence', 'garden fence', 'privacy fence',
+      'fence property', 'broken fence', 'fence fallen', 'new fence'
+    ]
+  },
+  'Techado': {
+    es: [
+      'techo', 'techos', 'techado', 'techumbre', 'tejado', 'tejados',
+      'teja', 'tejas', 'lamina', 'laminas', 'impermeabilizacion',
+      'impermeabilizar', 'impermeabilizante', 'gotera', 'goteras',
+      'canalon', 'canalones', 'canaleta', 'bajante', 'bajantes',
+      'aislamiento', 'aislante', 'fibra vidrio', 'poliuretano',
+      'tragaluz', 'claraboya', 'ventilador techo',
+      // Frases contextuales
+      'reparar techo', 'arreglar techo', 'cambiar techo', 'instalar techo',
+      'gotera techo', 'techo gotea', 'filtracion techo', 'techo danado',
+      'impermeabilizar techo', 'limpiar canalones', 'techo nuevo'
+    ],
+    en: [
+      'roof', 'roofing', 'rooftop', 'roofer',
+      'shingle', 'shingles', 'tile', 'tiles', 'metal roof',
+      'waterproofing', 'waterproof', 'leak', 'leaks', 'leaky roof',
+      'gutter', 'gutters', 'downspout', 'downspouts',
+      'insulation', 'fiberglass', 'polyurethane',
+      'skylight', 'attic', 'soffit', 'fascia', 'flashing',
+      // Contextual phrases
+      'repair roof', 'fix roof', 'replace roof', 'install roof',
+      'roof leak', 'leaking roof', 'roof damage', 'damaged roof',
+      'waterproof roof', 'clean gutters', 'new roof'
+    ]
+  },
+  'Remodelación': {
+    es: [
+      'remodelacion', 'remodelar', 'renovacion', 'renovar',
+      'construccion', 'construir', 'constructor', 'contratista',
+      'ampliacion', 'ampliar', 'edificar',
+      'albanil', 'albanileria', 'mamposteria', 'obra', 'obras',
+      'cemento', 'concreto', 'ladrillo', 'block', 'bloque',
+      'cocina', 'bano', 'sala', 'habitacion', 'cuarto',
+      'ingeniero', 'arquitecto', 'plano', 'planos', 'diseño',
+      'estructura', 'cimiento', 'cimientos', 'columna', 'losa',
+      // Frases contextuales
+      'remodelar casa', 'remodelar cocina', 'remodelar bano',
+      'ampliar casa', 'renovar casa', 'proyecto construccion',
+      'segundo piso', 'cuarto extra', 'hacer cuarto',
+      'obra gris', 'acabados', 'remodelacion integral'
+    ],
+    en: [
+      'remodel', 'remodeling', 'renovation', 'renovate', 'revamp',
+      'construction', 'build', 'building', 'builder', 'contractor',
+      'extension', 'expand', 'addition',
+      'mason', 'masonry', 'brickwork',
+      'cement', 'concrete', 'brick', 'block',
+      'kitchen', 'bathroom', 'living room', 'bedroom', 'room',
+      'engineer', 'architect', 'blueprint', 'plans', 'design',
+      'structure', 'foundation', 'column', 'slab',
+      // Contextual phrases
+      'remodel house', 'remodel kitchen', 'remodel bathroom',
+      'expand house', 'renovate house', 'construction project',
+      'second floor', 'extra room', 'add room',
+      'home improvement', 'full renovation', 'gut renovation'
     ]
   },
   'Cerrajería': {
@@ -208,439 +400,234 @@ export const SEARCH_KEYWORDS = {
       'cerrajero', 'cerrajeria', 'cerradura', 'cerraduras', 'llave', 'llaves',
       'candado', 'candados', 'chapa', 'chapas', 'pestillo',
       'duplicar llave', 'copia llave', 'puerta trabada',
+      'cerradura digital', 'cerradura inteligente', 'cerradura electronica',
+      'caja fuerte', 'combinacion', 'seguridad',
       // Frases contextuales
       'cambiar cerradura', 'hacer llave', 'me quede afuera', 'perdi llave',
       'puerta no abre', 'no abre puerta', 'instalar cerradura',
-      'cerradura rota', 'llave rota', 'abrir puerta'
+      'cerradura rota', 'llave rota', 'abrir puerta', 'emergencia cerrajero'
     ],
     en: [
       'locksmith', 'lock', 'locks', 'key', 'keys', 'padlock', 'deadbolt',
-      'latch', 'bolt', 'keyless', 'smart lock',
+      'latch', 'bolt', 'keyless', 'smart lock', 'electronic lock',
+      'safe', 'combination', 'security',
       // Contextual phrases
       'change lock', 'duplicate key', 'copy key', 'locked out',
       'lost key', 'broken lock', 'door wont open', 'install lock',
-      'open door', 'key stuck'
+      'open door', 'key stuck', 'emergency locksmith'
     ]
   },
-  'Albañilería': {
+  'Control de Plagas': {
     es: [
-      'albanil', 'albanileria', 'mamposteria', 'pared', 'paredes', 'muro', 'muros',
-      'cemento', 'concreto', 'ladrillo', 'ladrillos', 'block', 'blocks', 'bloque', 'bloques',
-      'cimiento', 'cimientos', 'columna', 'columnas', 'castillo', 'dala',
-      'aplanado', 'repello', 'mezcla', 'mortero', 'firme', 'losa',
-      // Frases contextuales
-      'levantar pared', 'hacer cuarto', 'ampliar casa', 'reparar pared',
-      'grieta', 'grietas', 'resane pared', 'construir', 'obra gris',
-      'hacer barda', 'cuarto extra'
-    ],
-    en: [
-      'mason', 'masonry', 'bricklayer', 'brickwork', 'brick', 'bricks',
-      'wall', 'walls', 'cement', 'concrete', 'mortar', 'block', 'blocks',
-      'foundation', 'column', 'pillar', 'slab',
-      'plaster', 'plastering', 'stucco',
-      // Contextual phrases
-      'build wall', 'repair wall', 'crack wall', 'cracked wall',
-      'add room', 'extend house', 'foundation repair'
-    ]
-  },
-  'Reparación de electrodomésticos': {
-    es: [
-      'electrodomestico', 'electrodomesticos', 'lavadora', 'lavadoras',
-      'refrigerador', 'refrigeradores', 'nevera', 'neveras', 'heladera',
-      'estufa', 'estufas', 'cocina', 'horno', 'hornos', 'microondas',
-      'licuadora', 'cafetera', 'tostador', 'secadora', 'lavavajillas',
-      'aspiradora', 'ventilador',
-      'tecnico', 'reparacion', 'servicio tecnico',
-      // Frases contextuales
-      'no funciona', 'no prende', 'no enciende', 'no enfria', 'no calienta',
-      'hace ruido', 'reparar lavadora', 'arreglar nevera', 'arreglar refri',
-      'se descompuso', 'no lava', 'no seca', 'tira agua'
-    ],
-    en: [
-      'appliance', 'appliances', 'washer', 'washing machine', 'dryer',
-      'refrigerator', 'fridge', 'freezer', 'stove', 'oven', 'microwave',
-      'dishwasher', 'blender', 'coffee maker', 'toaster',
-      'vacuum cleaner', 'technician', 'repair',
-      // Contextual phrases
-      'not working', 'wont turn on', 'not cooling', 'not heating',
-      'making noise', 'fix washer', 'repair fridge', 'broken appliance',
-      'leaking washer', 'not spinning'
-    ]
-  },
-  'Instalación de aire acondicionado': {
-    es: [
-      'aire acondicionado', 'minisplit', 'mini split', 'clima', 'climatizacion',
-      'refrigeracion', 'ventilacion', 'ac', 'aa',
-      'gas refrigerante', 'recarga gas', 'compresor', 'condensador', 'evaporador',
-      'ducto', 'ductos', 'termostato', 'control remoto',
-      // Frases contextuales
-      'instalar aire', 'mantenimiento aire', 'reparar aire', 'limpieza aire',
-      'no enfria', 'tira agua', 'hace ruido', 'huele feo', 'huele mal'
-    ],
-    en: [
-      'air conditioning', 'air conditioner', 'ac', 'hvac', 'mini split', 'minisplit',
-      'cooling', 'heating', 'ventilation', 'duct', 'ducts', 'thermostat',
-      'refrigerant', 'compressor', 'condenser', 'evaporator',
-      // Contextual phrases
-      'install ac', 'ac repair', 'ac maintenance', 'ac not cooling',
-      'ac leaking', 'ac noisy', 'clean ac', 'ac service'
-    ]
-  },
-  'Mudanzas': {
-    es: [
-      'mudanza', 'mudanzas', 'mudarme', 'mudar', 'transporte', 'transportar',
-      'trasladar', 'traslado', 'embalaje', 'empaque', 'embalar', 'empacar',
-      'cargar', 'descargar', 'flete', 'fletes', 'camion', 'camioneta',
-      // Frases contextuales
-      'servicio mudanza', 'transportar muebles', 'cambio casa', 'cambio oficina',
-      'cambio departamento', 'me mudo', 'necesito mudanza'
-    ],
-    en: [
-      'moving', 'move', 'movers', 'relocation', 'relocate', 'transport',
-      'hauling', 'haul', 'packing', 'pack', 'unpacking', 'unpack',
-      'loading', 'unloading', 'truck', 'van', 'freight',
-      // Contextual phrases
-      'moving service', 'move furniture', 'moving house', 'moving apartment',
-      'moving office', 'need movers'
-    ]
-  },
-  'Fumigación': {
-    es: [
-      'fumigacion', 'fumigar', 'fumigador', 'plaga', 'plagas',
+      'control plagas', 'fumigacion', 'fumigar', 'fumigador', 'plaga', 'plagas',
       'insecto', 'insectos', 'cucaracha', 'cucarachas', 'hormiga', 'hormigas',
       'raton', 'ratones', 'rata', 'ratas', 'chinche', 'chinches',
       'termita', 'termitas', 'arana', 'aranas', 'alacran', 'alacranes',
-      'exterminador', 'veneno', 'control plagas', 'desratizacion',
+      'exterminador', 'veneno', 'desratizacion', 'desinsectacion',
+      'mosquito', 'mosquitos', 'mosca', 'moscas', 'polilla', 'polillas',
       // Frases contextuales
       'eliminar plagas', 'matar cucarachas', 'hay ratones', 'tengo plagas',
-      'bichos casa', 'insectos casa'
+      'bichos casa', 'insectos casa', 'problema plagas', 'plaga termitas'
     ],
     en: [
-      'fumigation', 'fumigate', 'pest control', 'exterminator', 'extermination',
+      'pest control', 'fumigation', 'fumigate', 'exterminator', 'extermination',
       'pest', 'pests', 'insect', 'insects', 'bug', 'bugs',
       'cockroach', 'cockroaches', 'roach', 'ant', 'ants', 'mouse', 'mice', 'rat', 'rats',
       'bedbug', 'bedbugs', 'termite', 'termites', 'spider', 'spiders',
+      'mosquito', 'mosquitoes', 'fly', 'flies', 'moth', 'moths',
       // Contextual phrases
       'kill roaches', 'get rid bugs', 'pest problem', 'insect infestation',
-      'mice problem', 'bug spray'
+      'mice problem', 'bug spray', 'termite treatment', 'pest inspection'
     ]
   },
-  'Tecnología e informática': {
+  'Pisos': {
     es: [
-      'tecnologia', 'informatica', 'computadora', 'computadoras', 'computador',
-      'ordenador', 'pc', 'laptop', 'laptops', 'portatil', 'notebook',
-      'tablet', 'servidor', 'servidores', 'monitor', 'teclado', 'mouse',
-      'software', 'hardware', 'internet', 'wifi', 'red', 'redes',
-      'impresora', 'scanner', 'escaner', 'usb', 'disco duro',
-      'virus', 'antivirus', 'malware', 'formatear', 'formateo',
-      'soporte tecnico', 'tv', 'television',
+      'piso', 'pisos', 'suelo', 'suelos', 'pavimento',
+      'azulejo', 'azulejos', 'loseta', 'losetas', 'baldosa', 'baldosas',
+      'ceramica', 'porcelanato', 'marmol', 'granito', 'cantera',
+      'madera', 'duela', 'parquet', 'laminado', 'vinilico', 'vinyl',
+      'alfombra', 'tapete', 'moqueta', 'epoxy', 'epoxico',
+      'pulido', 'pulir', 'nivelacion', 'nivelar', 'lechada',
       // Frases contextuales
-      'reparar computadora', 'arreglar pc', 'pc lento', 'pc lenta',
-      'no prende pc', 'pantalla rota', 'instalar windows', 'respaldo datos',
-      'recuperar datos', 'configurar red', 'problema internet'
+      'instalar piso', 'cambiar piso', 'reparar piso', 'poner piso',
+      'piso cocina', 'piso bano', 'piso madera', 'piso ceramica',
+      'pulir piso', 'nivelar piso', 'piso danado', 'piso roto'
     ],
     en: [
-      'technology', 'tech', 'it', 'computer', 'computers', 'pc', 'laptop', 'laptops',
-      'notebook', 'tablet', 'server', 'servers', 'monitor', 'keyboard', 'mouse',
-      'software', 'hardware', 'internet', 'wifi', 'network', 'networking',
-      'printer', 'scanner', 'usb', 'hard drive', 'ssd',
-      'virus', 'antivirus', 'malware', 'format', 'backup',
-      'tech support', 'tv', 'television',
+      'floor', 'floors', 'flooring', 'tile', 'tiles', 'tiling',
+      'ceramic', 'porcelain', 'marble', 'granite', 'stone',
+      'hardwood', 'laminate', 'vinyl', 'linoleum',
+      'carpet', 'carpeting', 'rug', 'epoxy',
+      'polish', 'polishing', 'leveling', 'grout', 'grouting',
       // Contextual phrases
-      'fix computer', 'repair pc', 'slow computer', 'pc wont start',
-      'broken screen', 'install windows', 'data recovery',
-      'setup network', 'internet problem'
+      'install floor', 'replace floor', 'repair floor', 'lay floor',
+      'kitchen floor', 'bathroom floor', 'wood floor', 'tile floor',
+      'polish floor', 'level floor', 'damaged floor', 'broken tile'
     ]
   },
-  'Clases particulares': {
+  'Cocina': {
     es: [
-      'clase', 'clases', 'profesor', 'profesora', 'maestro', 'maestra',
-      'tutor', 'tutora', 'tutoria', 'tutorias', 'ensenanza', 'educacion',
-      'ensenar', 'aprender', 'regularizacion', 'apoyo escolar', 'refuerzo',
-      'matematicas', 'fisica', 'quimica', 'biologia', 'historia', 'geografia',
-      'ingles', 'frances', 'idioma', 'idiomas', 'musica', 'guitarra', 'piano',
-      'primaria', 'secundaria', 'preparatoria', 'universidad',
-      'tarea', 'tareas', 'examen', 'examenes',
+      'cocina', 'cocinas', 'electrodomestico', 'electrodomesticos',
+      'estufa', 'horno', 'microondas', 'refrigerador', 'nevera', 'lavavajillas',
+      'encimera', 'encimeras', 'barra', 'isla', 'granito', 'cuarzo', 'marmol',
+      'fregadero', 'grifo cocina', 'campana', 'extractor',
+      'salpicadero', 'backsplash', 'azulejo cocina',
+      'gas', 'linea gas', 'conexion gas', 'quemador', 'quemadores',
       // Frases contextuales
-      'necesito profesor', 'busco tutor', 'clases matematicas', 'ayuda escolar'
+      'instalar estufa', 'reparar electrodomestico', 'cambiar encimera',
+      'remodelar cocina', 'cocina integral', 'instalar campana',
+      'problema cocina', 'fregadero cocina', 'instalar lavavajillas'
     ],
     en: [
-      'class', 'classes', 'teacher', 'tutor', 'tutoring', 'lesson', 'lessons',
-      'teaching', 'education', 'learning', 'instructor',
-      'math', 'mathematics', 'physics', 'chemistry', 'biology', 'history',
-      'english', 'french', 'spanish', 'language', 'languages', 'music', 'guitar', 'piano',
-      'elementary', 'middle school', 'high school', 'college', 'university',
-      'homework', 'exam', 'exams', 'test prep',
+      'kitchen', 'appliance', 'appliances', 'stove', 'oven', 'microwave',
+      'refrigerator', 'fridge', 'dishwasher', 'range',
+      'countertop', 'countertops', 'counter', 'island', 'granite', 'quartz', 'marble',
+      'kitchen sink', 'kitchen faucet', 'hood', 'exhaust', 'vent',
+      'backsplash', 'kitchen tile', 'gas line', 'burner',
       // Contextual phrases
-      'need teacher', 'find tutor', 'math classes', 'homework help',
-      'private lessons', 'online classes'
+      'install stove', 'repair appliance', 'replace countertop',
+      'remodel kitchen', 'kitchen remodel', 'install hood',
+      'kitchen problem', 'kitchen sink', 'install dishwasher'
     ]
   },
-  'Belleza y estética': {
+  'Jardinería': {
     es: [
-      'belleza', 'estetica', 'peluqueria', 'salon', 'estilista',
-      'cabello', 'pelo', 'corte', 'corte pelo', 'tinte', 'tintura',
-      'mechas', 'alaciado', 'peinado', 'peinados',
-      'maquillaje', 'maquillar', 'maquillista',
-      'unas', 'manicure', 'pedicure', 'gelish', 'acrilico',
-      'depilacion', 'depilar', 'cera', 'laser',
-      'facial', 'faciales', 'masaje', 'masajes', 'spa',
+      'jardin', 'jardines', 'jardinero', 'jardineria', 'cesped', 'pasto', 'grama',
+      'planta', 'plantas', 'arbol', 'arboles', 'arbusto', 'arbustos',
+      'poda', 'podar', 'cortar', 'cortar cesped', 'cortacesped',
+      'riego', 'irrigacion', 'aspersor', 'aspersores', 'manguera',
+      'fertilizante', 'abono', 'tierra', 'composta', 'mulch', 'mantillo',
+      'maleza', 'hierba mala', 'deshierbar', 'paisajismo',
+      'flor', 'flores', 'maceta', 'jardinera', 'cantero',
       // Frases contextuales
-      'cortar pelo', 'pintar pelo', 'hacerme unas', 'tratamiento capilar',
-      'necesito estilista', 'peinar para evento'
+      'cortar cesped', 'podar arbol', 'plantar flores', 'instalar riego',
+      'disenar jardin', 'mantener jardin', 'limpiar jardin',
+      'quitar maleza', 'poner cesped', 'cuidar plantas'
     ],
     en: [
-      'beauty', 'aesthetics', 'salon', 'stylist', 'hairdresser', 'barber',
-      'hair', 'haircut', 'hairstyle', 'dye', 'highlights', 'straightening', 'perm',
-      'makeup', 'make up', 'artist',
-      'nails', 'manicure', 'pedicure', 'gel', 'acrylic',
-      'waxing', 'wax', 'laser', 'threading',
-      'facial', 'massage', 'spa', 'skincare',
+      'garden', 'gardening', 'gardener', 'yard', 'lawn', 'grass', 'turf',
+      'plant', 'plants', 'tree', 'trees', 'shrub', 'shrubs', 'bush', 'bushes',
+      'prune', 'pruning', 'trim', 'trimming', 'mow', 'mowing', 'mower',
+      'irrigation', 'sprinkler', 'sprinklers', 'hose', 'watering',
+      'fertilizer', 'compost', 'soil', 'mulch', 'mulching',
+      'weed', 'weeds', 'weeding', 'landscaping', 'landscape',
+      'flower', 'flowers', 'planter', 'bed', 'beds',
       // Contextual phrases
-      'cut hair', 'color hair', 'do nails', 'hair treatment',
-      'need stylist', 'style hair for event'
+      'mow lawn', 'trim trees', 'plant flowers', 'install irrigation',
+      'landscape design', 'yard maintenance', 'clean garden',
+      'pull weeds', 'lay sod', 'garden care'
     ]
   },
-  'Mecánica automotriz': {
+  'Ventanas': {
     es: [
-      'mecanica', 'mecanico', 'auto', 'automovil', 'carro', 'coche', 'vehiculo',
-      'motor', 'motores', 'afinacion', 'cambio aceite', 'aceite',
-      'freno', 'frenos', 'suspension', 'amortiguador', 'amortiguadores',
-      'transmision', 'clutch', 'embrague', 'bujia', 'bujias',
-      'llanta', 'llantas', 'neumatico', 'rueda', 'ruedas',
-      'bateria', 'acumulador', 'alternador', 'radiador', 'escape',
-      'taller', 'talleres', 'diagnostico', 'scanner',
+      'ventana', 'ventanas', 'vidrio', 'vidrios', 'cristal', 'cristales',
+      'mosquitero', 'mosquiteros', 'malla', 'persiana', 'persianas',
+      'cortina', 'cortinas', 'estor', 'estores', 'celosia',
+      'marco ventana', 'sellado', 'sellar', 'burletes', 'aislamiento',
+      'doble vidrio', 'doble cristal', 'polarizado', 'film', 'pelicula solar',
+      'cancel', 'canceles', 'ventanal', 'ventanales',
       // Frases contextuales
-      'reparar auto', 'arreglar carro', 'no arranca', 'hace ruido motor',
-      'humo escape', 'revision vehicular', 'servicio carro',
-      'cambiar llantas', 'alinear', 'balancear'
+      'cambiar vidrio', 'reparar ventana', 'instalar ventana',
+      'vidrio roto', 'ventana rota', 'sellar ventana',
+      'instalar persiana', 'poner cortina', 'mosquitero roto',
+      'ventana no cierra', 'eficiencia energetica'
     ],
     en: [
-      'mechanic', 'mechanics', 'automotive', 'auto', 'car', 'vehicle',
-      'engine', 'motor', 'tune up', 'oil change', 'oil',
-      'brake', 'brakes', 'suspension', 'shock', 'shocks',
-      'transmission', 'clutch', 'spark plug',
-      'tire', 'tires', 'wheel', 'wheels',
-      'battery', 'alternator', 'radiator', 'exhaust',
-      'garage', 'workshop', 'diagnostic',
+      'window', 'windows', 'glass', 'pane', 'panes',
+      'screen', 'screens', 'blind', 'blinds', 'shade', 'shades',
+      'curtain', 'curtains', 'shutter', 'shutters',
+      'window frame', 'seal', 'sealing', 'weatherstrip', 'insulation',
+      'double pane', 'double glazing', 'tint', 'tinting', 'film', 'solar film',
+      'sliding door', 'bay window', 'picture window',
       // Contextual phrases
-      'fix car', 'repair car', 'car wont start', 'engine noise',
-      'exhaust smoke', 'car inspection', 'car service',
-      'change tires', 'alignment', 'wheel balance'
-    ]
-  },
-  'Fotografía': {
-    es: [
-      'fotografia', 'fotografo', 'foto', 'fotos', 'fotografias',
-      'sesion fotografica', 'sesion fotos', 'imagen', 'imagenes',
-      'boda', 'bodas', 'quinceanos', 'quincanera', 'quince anos',
-      'retrato', 'retratos', 'estudio fotografico', 'book',
-      'producto', 'productos', 'catalogo',
-      'video', 'videografia', 'drone',
-      // Frases contextuales
-      'fotografiar', 'tomar fotos', 'fotos evento', 'fotos boda',
-      'fotos producto', 'necesito fotografo', 'sesion embarazo'
-    ],
-    en: [
-      'photography', 'photographer', 'photo', 'photos', 'photograph',
-      'photoshoot', 'photo session', 'shoot',
-      'wedding', 'portrait', 'portraits', 'studio',
-      'product', 'catalog', 'catalogue',
-      'video', 'videography', 'drone',
-      // Contextual phrases
-      'take photos', 'event photos', 'wedding photos',
-      'product photos', 'need photographer', 'maternity shoot'
-    ]
-  },
-  'Catering': {
-    es: [
-      'catering', 'banquete', 'banquetes', 'comida', 'cocinero', 'cocinera', 'chef',
-      'buffet', 'bocadillos', 'aperitivos', 'menu', 'alimentos', 'bebidas',
-      'mesero', 'meseros', 'servicio comida', 'evento',
-      'pastel', 'postres', 'reposteria',
-      // Frases contextuales
-      'comida para evento', 'comida para fiesta', 'comida para boda',
-      'necesito chef', 'servicio banquete', 'comida cumpleanos'
-    ],
-    en: [
-      'catering', 'caterer', 'banquet', 'food', 'cook', 'cooking', 'chef',
-      'buffet', 'appetizers', 'menu', 'beverages', 'drinks',
-      'waiter', 'waiters', 'server', 'food service', 'event',
-      'cake', 'dessert', 'desserts', 'bakery', 'baking',
-      // Contextual phrases
-      'food for event', 'food for party', 'food for wedding',
-      'need chef', 'banquet service', 'birthday food'
+      'replace glass', 'repair window', 'install window',
+      'broken glass', 'broken window', 'seal window',
+      'install blinds', 'hang curtains', 'fix screen',
+      'window wont close', 'energy efficient window'
     ]
   },
   'Construcción': {
     es: [
-      'construccion', 'construir', 'constructor', 'constructora',
-      'edificar', 'edificio', 'obra', 'obras', 'proyecto', 'proyectos',
-      'remodelacion', 'remodelar', 'ampliacion', 'ampliar',
-      'renovacion', 'renovar', 'remodelacion',
-      'ingeniero', 'arquitecto', 'plano', 'planos',
-      'estructura', 'estructural', 'cimentacion',
+      'construccion', 'construir', 'constructor', 'contratista', 'obra',
+      'cimiento', 'cimientos', 'fundacion', 'cimentacion',
+      'estructura', 'estructural', 'columna', 'columnas', 'viga', 'vigas',
+      'concreto', 'cemento', 'hormigon', 'varilla', 'acero', 'fierro',
+      'tablaroca', 'drywall', 'plafon', 'yeso',
+      'albanil', 'albanileria', 'mamposteria', 'ladrillo', 'block', 'bloque',
+      'terreno', 'nivelacion', 'excavacion', 'demolicion',
+      'permiso', 'permisos', 'licencia construccion',
       // Frases contextuales
-      'hacer casa', 'construir casa', 'proyecto construccion',
-      'ampliar casa', 'renovar casa', 'remodelar bano',
-      'remodelar cocina', 'segundo piso'
+      'construir casa', 'obra nueva', 'preparar terreno',
+      'colar losa', 'levantar muro', 'hacer cimientos',
+      'proyecto construccion', 'obra civil', 'segunda planta'
     ],
     en: [
       'construction', 'build', 'building', 'builder', 'contractor',
-      'remodel', 'remodeling', 'renovation', 'renovate',
-      'extension', 'expand', 'addition',
-      'engineer', 'architect', 'blueprint', 'plans',
-      'structure', 'structural', 'foundation',
+      'foundation', 'footing', 'slab', 'base',
+      'structure', 'structural', 'column', 'beam', 'framing', 'frame',
+      'concrete', 'cement', 'rebar', 'steel', 'iron',
+      'drywall', 'sheetrock', 'plaster', 'stud', 'studs',
+      'mason', 'masonry', 'brick', 'block', 'cinder block',
+      'grading', 'excavation', 'demolition', 'site prep',
+      'permit', 'permits', 'building permit',
       // Contextual phrases
-      'build house', 'house construction', 'construction project',
-      'expand house', 'renovate house', 'remodel bathroom',
-      'remodel kitchen', 'second floor', 'home improvement'
+      'build house', 'new construction', 'site preparation',
+      'pour slab', 'raise wall', 'lay foundation',
+      'construction project', 'civil work', 'second story'
     ]
   },
-  'Decoración': {
+  'Mudanzas': {
     es: [
-      'decoracion', 'decorador', 'decoradora', 'decorar',
-      'interior', 'interiores', 'interiorismo', 'interiorista',
-      'ambientar', 'amueblar', 'amueblamiento',
-      'cortina', 'cortinas', 'persiana', 'persianas',
-      'tapiz', 'tapiceria', 'alfombra', 'alfombras',
-      'cuadro', 'cuadros', 'iluminacion decorativa',
+      'mudanza', 'mudanzas', 'mudar', 'mudarse', 'mover', 'trasladar',
+      'empacar', 'empacar', 'embalar', 'desempacar', 'desembalar',
+      'carga', 'descarga', 'transporte', 'camion mudanza', 'fletes', 'flete',
+      'bodega', 'almacen', 'almacenaje', 'guardamuebles',
+      'mueble pesado', 'piano', 'caja', 'cajas', 'empaque',
+      'oficina', 'local', 'departamento',
       // Frases contextuales
-      'diseño interior', 'diseño espacios', 'renovar casa decoracion',
-      'cambiar decoracion', 'decorar sala', 'decorar departamento',
-      'ambientar oficina'
+      'mover muebles', 'cambiar casa', 'mudarme', 'me mudo',
+      'necesito mudanza', 'servicio mudanza', 'empacar cosas',
+      'mudanza local', 'mudanza larga distancia', 'sacar muebles',
+      'tirar cosas', 'desechar muebles'
     ],
     en: [
-      'decoration', 'decorator', 'decorate', 'decorating',
-      'interior design', 'interior designer', 'interiors',
-      'furnish', 'furnishing', 'staging',
-      'curtain', 'curtains', 'blinds', 'drapes',
-      'upholstery', 'carpet', 'rug', 'rugs',
-      'artwork', 'art', 'lighting design',
+      'moving', 'move', 'movers', 'mover', 'relocation', 'relocate',
+      'pack', 'packing', 'unpack', 'unpacking', 'box', 'boxes',
+      'load', 'unload', 'transport', 'truck', 'hauling', 'haul',
+      'storage', 'warehouse', 'self storage',
+      'heavy furniture', 'piano', 'appliance', 'fragile',
+      'office', 'apartment', 'house',
       // Contextual phrases
-      'interior design', 'space design', 'home decor',
-      'redecorate', 'decorate living room', 'decorate apartment',
-      'office design'
+      'move furniture', 'change house', 'moving out', 'moving in',
+      'need movers', 'moving service', 'pack things',
+      'local move', 'long distance move', 'junk removal',
+      'dispose furniture', 'throw away'
     ]
   },
-  'Diseño gráfico': {
+  'Seguridad': {
     es: [
-      'diseno grafico', 'disenador grafico', 'disenadora',
-      'logo', 'logotipo', 'logos', 'branding', 'marca', 'identidad',
-      'publicidad', 'flyer', 'flyers', 'cartel', 'carteles',
-      'banner', 'banners', 'tarjeta', 'tarjetas',
-      'diseno web', 'pagina web', 'sitio web', 'imagen corporativa',
-      'ilustracion', 'ilustrador', 'infografia',
+      'seguridad', 'vigilancia', 'proteccion', 'alarma', 'alarmas',
+      'camara', 'camaras', 'cctv', 'videoportero', 'interfon', 'intercom',
+      'sensor', 'sensores', 'movimiento', 'detector', 'detectores',
+      'monitoreo', 'control acceso', 'cerradura electronica',
+      'domotica', 'casa inteligente', 'automatizacion', 'smart home',
+      'luz sensor', 'reflector', 'cerca electrica',
       // Frases contextuales
-      'crear logo', 'diseño logo', 'diseñar logo', 'necesito logo',
-      'hacer tarjetas', 'diseñar publicidad', 'imagen empresa'
+      'instalar camaras', 'poner alarma', 'sistema seguridad',
+      'vigilancia remota', 'monitoreo 24 horas', 'proteger casa',
+      'seguridad hogar', 'instalar sensores', 'control acceso casa'
     ],
     en: [
-      'graphic design', 'graphic designer', 'designer',
-      'logo', 'logos', 'logotype', 'branding', 'brand', 'identity',
-      'advertising', 'flyer', 'flyers', 'poster', 'posters',
-      'banner', 'banners', 'business card', 'business cards',
-      'web design', 'website', 'corporate image',
-      'illustration', 'illustrator', 'infographic',
+      'security', 'surveillance', 'protection', 'alarm', 'alarms',
+      'camera', 'cameras', 'cctv', 'doorbell', 'intercom', 'video doorbell',
+      'sensor', 'sensors', 'motion', 'detector', 'detectors',
+      'monitoring', 'access control', 'smart lock', 'electronic lock',
+      'smart home', 'home automation', 'automation',
+      'security light', 'floodlight', 'electric fence',
       // Contextual phrases
-      'create logo', 'design logo', 'need logo',
-      'design business cards', 'design advertising', 'company branding'
-    ]
-  },
-  'Asesoría legal': {
-    es: [
-      'legal', 'abogado', 'abogada', 'licenciado', 'derecho',
-      'asesoria legal', 'asesor legal', 'juridico', 'juridica',
-      'demanda', 'juicio', 'contrato', 'contratos',
-      'tramite', 'tramites', 'documento', 'documentos', 'notario',
-      'divorcio', 'divorcios', 'herencia', 'herencias', 'testamento',
-      'laboral', 'penal', 'civil', 'mercantil', 'fiscal',
-      // Frases contextuales
-      'consulta legal', 'necesito abogado', 'problema legal',
-      'asesor juridico', 'redactar contrato', 'firma legal'
-    ],
-    en: [
-      'legal', 'lawyer', 'attorney', 'law', 'counsel',
-      'legal advice', 'legal advisor', 'juridical',
-      'lawsuit', 'trial', 'contract', 'contracts',
-      'paperwork', 'document', 'documents', 'notary',
-      'divorce', 'inheritance', 'will', 'estate',
-      'labor', 'criminal', 'civil', 'commercial', 'tax',
-      // Contextual phrases
-      'legal consultation', 'need lawyer', 'legal problem',
-      'legal counsel', 'draft contract', 'legal review'
-    ]
-  },
-  'Contabilidad': {
-    es: [
-      'contabilidad', 'contador', 'contadora', 'contable',
-      'impuesto', 'impuestos', 'declaracion', 'declaraciones',
-      'fiscal', 'financiero', 'finanzas', 'empresa', 'negocio',
-      'sat', 'facturacion', 'factura', 'facturas',
-      'nomina', 'nominas', 'auditoria',
-      'estados financieros', 'balance', 'iva', 'isr',
-      // Frases contextuales
-      'calculo impuestos', 'declaracion anual', 'necesito contador',
-      'llevar contabilidad', 'asesor fiscal', 'pagar impuestos'
-    ],
-    en: [
-      'accounting', 'accountant', 'bookkeeping', 'bookkeeper',
-      'tax', 'taxes', 'tax return', 'filing',
-      'fiscal', 'financial', 'finance', 'business',
-      'invoice', 'invoicing', 'billing',
-      'payroll', 'audit', 'auditing',
-      'financial statements', 'balance sheet', 'vat',
-      // Contextual phrases
-      'tax calculation', 'annual filing', 'need accountant',
-      'manage books', 'tax advisor', 'pay taxes'
-    ]
-  },
-  'Marketing digital': {
-    es: [
-      'marketing', 'marketing digital', 'mercadotecnia',
-      'publicidad', 'anuncios', 'anuncio', 'campana', 'campanas',
-      'redes sociales', 'facebook', 'instagram', 'tiktok', 'youtube',
-      'social media', 'community manager',
-      'seo', 'posicionamiento', 'google', 'ads', 'adwords',
-      'estrategia', 'contenido', 'viral', 'seguidores',
-      'email marketing', 'newsletter', 'blog',
-      // Frases contextuales
-      'posicionar web', 'mas seguidores', 'vender online',
-      'publicidad internet', 'crear campana', 'manejo redes'
-    ],
-    en: [
-      'marketing', 'digital marketing', 'online marketing',
-      'advertising', 'ads', 'ad', 'campaign', 'campaigns',
-      'social media', 'facebook', 'instagram', 'tiktok', 'youtube',
-      'community manager', 'social manager',
-      'seo', 'search engine', 'google', 'ppc',
-      'strategy', 'content', 'viral', 'followers',
-      'email marketing', 'newsletter', 'blog', 'blogging',
-      // Contextual phrases
-      'rank website', 'more followers', 'sell online',
-      'online advertising', 'create campaign', 'manage social media'
-    ]
-  },
-  'Traducción': {
-    es: [
-      'traduccion', 'traductor', 'traductora', 'traducir',
-      'idioma', 'idiomas', 'interpretacion', 'interprete',
-      'ingles', 'frances', 'aleman', 'chino', 'japones', 'portugues', 'italiano',
-      'certificada', 'jurada', 'simultanea', 'consecutiva',
-      'documento', 'documentos', 'subtitulos', 'localizacion',
-      // Frases contextuales
-      'traducir documento', 'necesito traductor', 'traducir pagina',
-      'traduccion oficial', 'certificar traduccion'
-    ],
-    en: [
-      'translation', 'translator', 'translate', 'interpreting', 'interpreter',
-      'language', 'languages', 'bilingual', 'multilingual',
-      'english', 'french', 'german', 'chinese', 'japanese', 'portuguese', 'italian',
-      'certified', 'sworn', 'simultaneous', 'consecutive',
-      'document', 'documents', 'subtitles', 'localization',
-      // Contextual phrases
-      'translate document', 'need translator', 'translate website',
-      'official translation', 'certify translation'
+      'install cameras', 'set alarm', 'security system',
+      'remote monitoring', '24 hour monitoring', 'protect home',
+      'home security', 'install sensors', 'home access control'
     ]
   }
 };

@@ -650,7 +650,7 @@ class GuestController {
               userName: t.userName,
               userAvatar: t.userAvatar,
               userRole: t.userRole,
-              category: t.providerServices?.[0]?.category || 'Otro',
+              category: t.providerServices?.[0]?.category || 'Reparaciones',
               caption: photo.description || null,
               createdAt: t.createdAt
             });
@@ -677,7 +677,7 @@ class GuestController {
               userName: t.clientName,
               userAvatar: t.clientAvatar,
               userRole: t.userRole,
-              category: t.providerServices?.[0]?.category || 'Otro',
+              category: t.providerServices?.[0]?.category || 'Reparaciones',
               caption: photo.description || null,
               createdAt: t.createdAt
             });
@@ -730,7 +730,7 @@ class GuestController {
             userName: null,
             userAvatar: null,
             userRole: 'provider',
-            category: item.category || provider.providerProfile?.services?.[0]?.category || 'Otro',
+            category: item.category || provider.providerProfile?.services?.[0]?.category || 'Reparaciones',
             caption: item.caption || null,
             createdAt: item.uploadedAt || new Date()
           });
@@ -785,7 +785,7 @@ class GuestController {
             userName: null,
             userAvatar: null,
             userRole: 'provider',
-            category: provider.providerProfile?.services?.[0]?.category || 'Otro',
+            category: provider.providerProfile?.services?.[0]?.category || 'Reparaciones',
             caption: evidence.description || null,
             createdAt: evidence.uploadedAt || booking.createdAt
           });

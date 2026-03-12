@@ -568,6 +568,23 @@ class NotificationService {
           priority: 'medium',
           extraData: { providerName: extra?.providerName || '', rating: extra?.rating || '' }
         };
+      case 'INVOICE_RECEIVED':
+        return {
+          ...base,
+          subject: 'Factura recibida 📄',
+          message: extra?.providerName
+            ? `${extra.providerName} te ha enviado una factura${extra.amount ? ` por $${extra.amount}` : ''}.`
+            : 'Has recibido una factura de un profesional.',
+          actionUrl: '/reservas',
+          priority: 'high',
+          extraData: {
+            providerName: extra?.providerName || '',
+            invoiceNumber: extra?.invoiceNumber || '',
+            amount: extra?.amount || '',
+            currency: extra?.currency || 'USD',
+            bookingId: extra?.bookingId || ''
+          }
+        };
       default:
         return {
           ...base,

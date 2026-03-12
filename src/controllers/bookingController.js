@@ -445,6 +445,116 @@ class BookingController {
   }
 
   /**
+   * Guardar factura en el booking y notificar al cliente
+   */
+  async saveInvoice(req, res) {
+    try {
+      const { id } = req.params;
+      const {
+        invoiceNumber, invoiceDate, dueDate,
+        items, subtotal, discount, taxRate, tax, shipping, total, currency, notes,
+        pdfUrl,
+        businessInfo, clientInfo
+      } = req.body;
+
+      const booking = await Booking.findOne({
+        _id: id,
+        provider: req.user._id
+      }).populate('client', 'profile')
+        .populate('provider', 'providerProfile profile');
+
+      if (!booking) {
+        return res.status(404).json({
+          success: false,
+          message: 'Booking not found'
+        });
+      }
+
+      // Guardar datos de factura
+      booking.invoice = {
+        invoiceNumber,
+        invoiceDate: invoiceDate ? new Date(invoiceDate) : new Date(),
+        dueDate: dueDate ? new Date(dueDate) : null,
+        items: (items || []).map(it => ({
+          description: it.description,
+          qty: Number(it.qty) || 0,
+          unitPrice: Number(it.unitPrice) || 0,
+          total: Number(it.total) || 0
+        })),
+        subtotal: Number(subtotal) || 0,
+        discount: Number(discount) || 0,
+        taxRate: Number(taxRate) || 0,
+        tax: Number(tax) || 0,
+        shipping: Number(shipping) || 0,
+        total: Number(total) || 0,
+        currency: currency || 'USD',
+        notes: notes || '',
+        pdfUrl: pdfUrl || '',
+        businessInfo: {
+          name: businessInfo?.name || '',
+          address: businessInfo?.address || '',
+          phone: businessInfo?.phone || '',
+          email: businessInfo?.email || ''
+        },
+        clientInfo: {
+          name: clientInfo?.name || '',
+          address: clientInfo?.address || '',
+          city: clientInfo?.city || '',
+          state: clientInfo?.state || '',
+          zip: clientInfo?.zip || ''
+        },
+        sentAt: new Date(),
+        sentViaChat: true
+      };
+
+      // Forzar que Mongoose detecte el cambio en el sub-documento
+      booking.markModified('invoice');
+
+      await booking.save();
+      console.log(`✅ Invoice saved for booking ${id} — sentAt: ${booking.invoice.sentAt}`);
+
+      // Notificar al cliente
+      const providerName = booking.provider?.providerProfile?.businessName
+        || `${booking.provider?.profile?.firstName || ''} ${booking.provider?.profile?.lastName || ''}`.trim()
+        || 'Profesional';
+
+      try {
+        await notificationService.sendClientNotification({
+          clientId: booking.client._id || booking.client,
+          type: 'INVOICE_RECEIVED',
+          priority: 'high',
+          data: {
+            bookingId: booking._id,
+            providerName,
+            invoiceNumber,
+            amount: total,
+            currency: currency || 'USD'
+          }
+        });
+      } catch (notifErr) {
+        console.warn('BookingController - saveInvoice: notification failed', notifErr?.message);
+      }
+
+      // Emitir actualización de contadores al cliente
+      try {
+        emitter.emitCountersUpdateToUser(booking.client._id || booking.client, { reason: 'invoice_received' });
+      } catch { /* ignore */ }
+
+      res.json({
+        success: true,
+        message: 'Invoice saved successfully',
+        data: { invoice: booking.invoice }
+      });
+    } catch (error) {
+      console.error('BookingController - saveInvoice error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to save invoice'
+      });
+    }
+  }
+
+  /**
    * Iniciar proceso de pago
    */
   async initiatePayment(booking) {

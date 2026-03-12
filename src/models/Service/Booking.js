@@ -150,7 +150,42 @@ const bookingSchema = new mongoose.Schema({
     scheduledFor: Date,
     sent: { type: Boolean, default: false },
     sentAt: Date
-  }]
+  }],
+  invoice: {
+    invoiceNumber: String,
+    invoiceDate: Date,
+    dueDate: Date,
+    items: [{
+      description: String,
+      qty: Number,
+      unitPrice: Number,
+      total: Number
+    }],
+    subtotal: Number,
+    discount: Number,
+    taxRate: Number,
+    tax: Number,
+    shipping: Number,
+    total: Number,
+    currency: { type: String, default: 'USD' },
+    notes: String,
+    pdfUrl: String,
+    businessInfo: {
+      name: String,
+      address: String,
+      phone: String,
+      email: String
+    },
+    clientInfo: {
+      name: String,
+      address: String,
+      city: String,
+      state: String,
+      zip: String
+    },
+    sentAt: Date,
+    sentViaChat: { type: Boolean, default: false }
+  }
 }, {
   timestamps: true
 });

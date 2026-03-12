@@ -564,6 +564,17 @@ class UploadController {
         } else {
           uploadOptions.resource_type = 'raw';
           uploadOptions.timeout = 60000; // 1 minuto para documentos
+
+          // Para resource_type: 'raw', Cloudinary NO agrega extensión a la URL.
+          // Forzamos que el public_id incluya la extensión original (ej. .pdf)
+          // para que la URL resultante sea descargable y reconocible por el navegador.
+          const originalExt = (file.originalname || '').match(/\.[^.]+$/)?.[0] || '';
+          const baseName = (file.originalname || 'document').replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_');
+          const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          uploadOptions.public_id = `${baseName}_${uniqueSuffix}${originalExt}`;
+          // Con public_id explícito desactivamos use_filename para evitar conflicto
+          uploadOptions.use_filename = false;
+          uploadOptions.unique_filename = false;
         }
 
         const uploadStream = cloudinary.uploader.upload_stream(

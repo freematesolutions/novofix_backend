@@ -616,6 +616,72 @@ class UploadController {
       });
     }
   }
+
+  /**
+   * Proxy para servir archivos de Cloudinary a través del servidor.
+   * Resuelve el 401 que Cloudinary devuelve en raw resources cuando el
+   * navegador hace fetch directo (CORS / acceso restringido).
+   * GET /uploads/proxy?url=<cloudinary_url>
+   */
+  async proxyFile(req, res) {
+    try {
+      const { url } = req.query;
+      if (!url) {
+        return res.status(400).json({ success: false, message: 'Missing url parameter' });
+      }
+
+      // Security: only proxy Cloudinary URLs
+      const parsed = new URL(url);
+      if (!parsed.hostname.endsWith('cloudinary.com') && !parsed.hostname.endsWith('cloudinary.net')) {
+        return res.status(403).json({ success: false, message: 'Only Cloudinary URLs are allowed' });
+      }
+
+      // Generate an API-authenticated Cloudinary download URL
+      let fetchUrl = url;
+      try {
+        const pathParts = parsed.pathname.split('/').filter(Boolean);
+        // pathParts: ['cloud_name', 'raw', 'upload', 'v123456', 'folder/file.pdf']
+        const resourceType = pathParts[1] || 'raw';
+        const type = pathParts[2] || 'upload';
+        let publicIdStart = 3;
+        if (pathParts[3] && /^v\d+$/.test(pathParts[3])) {
+          publicIdStart = 4;
+        }
+        const publicId = pathParts.slice(publicIdStart).join('/');
+
+        // private_download_url generates an API endpoint URL with full auth:
+        // https://api.cloudinary.com/v1_1/{cloud}/{type}/download?api_key=...&signature=...
+        fetchUrl = cloudinary.utils.private_download_url(publicId, '', {
+          resource_type: resourceType,
+          type: type,
+          expires_at: Math.floor(Date.now() / 1000) + 3600
+        });
+        console.log('UploadController - proxyFile: Using private_download_url for', publicId);
+      } catch (signErr) {
+        console.warn('UploadController - proxyFile: Could not generate download URL, using original:', signErr.message);
+      }
+
+      const response = await fetch(fetchUrl);
+      if (!response.ok) {
+        console.error(`UploadController - proxyFile: upstream returned ${response.status} for ${fetchUrl}`);
+        return res.status(502).json({ success: false, message: `Upstream returned ${response.status}` });
+      }
+
+      const contentType = response.headers.get('content-type') || 'application/octet-stream';
+      // Extraer nombre de archivo de la URL
+      const fileName = decodeURIComponent(parsed.pathname.split('/').pop() || 'file');
+
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+
+      const arrayBuffer = await response.arrayBuffer();
+      res.send(Buffer.from(arrayBuffer));
+    } catch (error) {
+      console.error('❌ UploadController - proxyFile error:', error);
+      res.status(500).json({ success: false, message: 'Failed to proxy file' });
+    }
+  }
 }
 
 export default new UploadController();

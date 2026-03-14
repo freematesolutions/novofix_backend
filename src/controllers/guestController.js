@@ -1173,6 +1173,95 @@ class GuestController {
       });
     }
   }
+
+  /**
+   * Obtener reels (solo videos de portfolio de profesionales) — endpoint público
+   * Retorna videos ordenados por rating → plan → fecha, con datos del profesional
+   */
+  async getReels(req, res) {
+    try {
+      const Provider = (await import('../models/User/Provider.js')).default;
+
+      const planPriority = { pro: 3, basic: 2, free: 1 };
+
+      // Buscar proveedores activos que tengan videos en su portfolio
+      const providersWithVideos = await Provider.find({
+        isActive: true,
+        'providerProfile.portfolio': {
+          $elemMatch: { type: 'video' }
+        }
+      })
+      .sort({
+        'subscription.plan': -1,
+        'providerProfile.rating.average': -1,
+        'score.total': -1
+      })
+      .limit(30)
+      .select({
+        'profile.firstName': 1,
+        'profile.avatar': 1,
+        'providerProfile.businessName': 1,
+        'providerProfile.portfolio': 1,
+        'providerProfile.services': 1,
+        'providerProfile.rating': 1,
+        'subscription.plan': 1,
+        'score.total': 1
+      })
+      .lean();
+
+      // Extraer solo los videos de cada portfolio
+      const reels = [];
+      providersWithVideos.forEach(provider => {
+        const portfolio = provider.providerProfile?.portfolio || [];
+        const plan = provider.subscription?.plan || 'free';
+        const rating = provider.providerProfile?.rating?.average || 0;
+
+        portfolio
+          .filter(item => item.type === 'video')
+          .forEach(item => {
+            reels.push({
+              _id: item._id?.toString() || `${provider._id}-${item.url}`,
+              url: item.url,
+              cloudinaryId: item.cloudinaryId,
+              type: 'video',
+              caption: item.caption || null,
+              category: item.category || provider.providerProfile?.services?.[0]?.category || null,
+              providerName: provider.providerProfile?.businessName || provider.profile?.firstName || 'Profesional',
+              providerAvatar: provider.profile?.avatar || null,
+              providerId: provider._id,
+              providerPlan: plan,
+              rating: rating,
+              uploadedAt: item.uploadedAt || new Date()
+            });
+          });
+      });
+
+      // Ordenar: rating (desc) → plan (pro>basic>free) → fecha (reciente primero)
+      reels.sort((a, b) => {
+        const ratingDiff = (b.rating || 0) - (a.rating || 0);
+        if (ratingDiff !== 0) return ratingDiff;
+        const planDiff = (planPriority[b.providerPlan] || 1) - (planPriority[a.providerPlan] || 1);
+        if (planDiff !== 0) return planDiff;
+        return new Date(b.uploadedAt) - new Date(a.uploadedAt);
+      });
+
+      console.log(`🎬 Returning ${reels.length} reels from ${providersWithVideos.length} providers`);
+
+      res.json({
+        success: true,
+        data: {
+          reels,
+          total: reels.length
+        }
+      });
+    } catch (error) {
+      console.error('GuestController - getReels error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to get reels'
+      });
+    }
+  }
 }
 
 const guestController = new GuestController();

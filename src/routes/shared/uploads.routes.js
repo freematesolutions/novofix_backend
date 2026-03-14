@@ -114,4 +114,11 @@ router.post('/chat',
   uploadController.uploadChatFile
 );
 
+// Proxy para archivos de Cloudinary (resuelve 401 en raw resources)
+router.get('/proxy',
+  authenticateJWT,
+  requireAuth,
+  uploadController.proxyFile
+);
+
 export default router;

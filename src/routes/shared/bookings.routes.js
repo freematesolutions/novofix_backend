@@ -60,6 +60,7 @@ router.post('/:id/confirm-completion', clientOnly, bookingController.confirmServ
 router.put('/:id/status', providerOnly, bookingController.updateBookingStatus.bind(bookingController));
 router.post('/:id/evidence', providerOnly, bookingController.uploadServiceEvidence.bind(bookingController));
 router.post('/:id/invoice', providerOnly, bookingController.saveInvoice.bind(bookingController));
+router.get('/:id/invoice-pdf', bookingController.getInvoicePdf.bind(bookingController));
 
 // Rutas de reviews (después de completar el servicio)
 router.post('/:bookingId/reviews', clientOnly, reviewController.createReview.bind(reviewController));

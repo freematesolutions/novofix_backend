@@ -9,6 +9,7 @@ import chatController from './chatController.js';
 import stripeService from '../services/external/payment/stripeService.js';
 import { SocketService } from '../websocket/services/socketService.js';
 import emitter from '../websocket/services/emitterService.js';
+import cloudinary from '../config/cloudinary.js';
 
 class BookingController {
   /**
@@ -551,6 +552,82 @@ class BookingController {
         success: false,
         message: 'Failed to save invoice'
       });
+    }
+  }
+
+  /**
+   * Proxy para servir el PDF de la factura directamente desde el servidor.
+   * Resuelve el problema de Cloudinary 401 en raw resources.
+   * GET /bookings/:id/invoice-pdf
+   */
+  async getInvoicePdf(req, res) {
+    try {
+      const { id } = req.params;
+      const booking = await Booking.findById(id).select('invoice client provider');
+
+      if (!booking) {
+        return res.status(404).json({ success: false, message: 'Booking not found' });
+      }
+
+      // Verificar ownership
+      const userId = req.user._id.toString();
+      const isOwner = [booking.client?.toString(), booking.provider?.toString()].includes(userId);
+      if (!isOwner) {
+        return res.status(403).json({ success: false, message: 'Not authorized' });
+      }
+
+      const pdfUrl = booking.invoice?.pdfUrl;
+      if (!pdfUrl) {
+        return res.status(404).json({ success: false, message: 'No invoice PDF available' });
+      }
+
+      // Generate an API-authenticated Cloudinary download URL
+      let fetchUrl = pdfUrl;
+      try {
+        const parsed = new URL(pdfUrl);
+        if (parsed.hostname.includes('cloudinary')) {
+          const pathParts = parsed.pathname.split('/').filter(Boolean);
+          // pathParts: ['cloud_name', 'raw', 'upload', 'v123456', 'folder/file.pdf']
+          const resourceType = pathParts[1] || 'raw';
+          let publicIdStart = 3;
+          if (pathParts[3] && /^v\d+$/.test(pathParts[3])) {
+            publicIdStart = 4;
+          }
+          const publicId = pathParts.slice(publicIdStart).join('/');
+
+          // private_download_url generates an API endpoint URL with full auth:
+          // https://api.cloudinary.com/v1_1/{cloud}/raw/download?api_key=...&signature=...
+          fetchUrl = cloudinary.utils.private_download_url(publicId, '', {
+            resource_type: resourceType,
+            type: 'upload',
+            expires_at: Math.floor(Date.now() / 1000) + 3600
+          });
+          console.log('BookingController - getInvoicePdf: Using private_download_url for', publicId);
+        }
+      } catch (urlErr) {
+        console.warn('BookingController - getInvoicePdf: Could not generate download URL, using original:', urlErr.message);
+      }
+
+      // Fetch the PDF using the authenticated URL
+      const response = await fetch(fetchUrl);
+      if (!response.ok) {
+        console.error(`BookingController - getInvoicePdf: Cloudinary returned ${response.status} for ${fetchUrl}`);
+        return res.status(502).json({ success: false, message: 'Failed to fetch invoice PDF from storage' });
+      }
+
+      const contentType = response.headers.get('content-type') || 'application/pdf';
+      const fileName = `Invoice_${booking.invoice?.invoiceNumber || id}.pdf`;
+
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+
+      // Stream the response body to the client
+      const arrayBuffer = await response.arrayBuffer();
+      res.send(Buffer.from(arrayBuffer));
+    } catch (error) {
+      console.error('BookingController - getInvoicePdf error:', error);
+      res.status(500).json({ success: false, message: 'Failed to proxy invoice PDF' });
     }
   }
 

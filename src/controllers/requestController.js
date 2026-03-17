@@ -45,6 +45,24 @@ class RequestController {
         });
       }
 
+      // Prevenir solicitudes duplicadas: verificar si ya existe una solicitud activa
+      // del mismo cliente para la misma categoría
+      if (clientId && !saveAsDraft) {
+        const existingRequest = await ServiceRequest.findOne({
+          client: clientId,
+          'basicInfo.category': category,
+          status: { $in: ['published', 'draft'] }
+        });
+        if (existingRequest) {
+          return res.status(409).json({
+            success: false,
+            code: 'DUPLICATE_REQUEST',
+            message: 'You already have an active request for this category',
+            data: { existingRequestId: existingRequest._id }
+          });
+        }
+      }
+
       // Calcular fecha de expiración
       const expiryDate = new Date();
       if (urgency === 'immediate') {
@@ -339,16 +357,20 @@ class RequestController {
           // Enviar notificación a cada proveedor involucrado
           const providerArray = [...providerIds];
           if (providerArray.length > 0) {
+            const clientName = req.user?.profile?.firstName
+              ? `${req.user.profile.firstName}${req.user.profile?.lastName ? ' ' + req.user.profile.lastName : ''}`
+              : '';
             await Promise.allSettled(
               providerArray.map(providerId =>
                 notificationService.sendProviderNotification({
                   providerId,
                   serviceRequestId: sr._id,
                   type: 'REQUEST_UPDATED',
-                  priority: 'medium',
+                  priority: 'high',
                   data: {
                     requestTitle: sr.basicInfo?.title || '',
-                    category: sr.basicInfo?.category || ''
+                    category: sr.basicInfo?.category || '',
+                    clientName
                   }
                 })
               )

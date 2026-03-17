@@ -65,11 +65,11 @@ class BookingController {
           estimatedDuration: derivedDuration,
           timezone: 'UTC-5' // Por defecto, debería venir del cliente
         },
-        status: 'confirmed',
+        status: 'completed',
         statusHistory: [{
-          status: 'confirmed',
+          status: 'completed',
           timestamp: new Date(),
-          notes: 'Booking created from accepted proposal'
+          notes: 'Booking created from accepted proposal — service hired'
         }],
         payment: {
           totalAmount: pricing.amount,
@@ -435,9 +435,9 @@ class BookingController {
    */
   isValidStatusTransition(fromStatus, toStatus) {
     const validTransitions = {
-      'confirmed': ['completed', 'cancelled'], // Simplificado: ir directo a completed
-      'provider_en_route': ['in_progress', 'completed', 'cancelled'], // Mantener compatibilidad con bookings existentes
-      'in_progress': ['completed', 'cancelled'], // Mantener compatibilidad con bookings existentes
+      'confirmed': ['completed', 'cancelled'],
+      'provider_en_route': ['in_progress', 'completed', 'cancelled'],
+      'in_progress': ['completed', 'cancelled'],
       'completed': [], // Estado final
       'cancelled': [] // Estado final
     };
@@ -552,6 +552,82 @@ class BookingController {
         success: false,
         message: 'Failed to save invoice'
       });
+    }
+  }
+
+  /**
+   * Marcar factura como vista por el cliente y notificar al proveedor.
+   * POST /bookings/:id/invoice-viewed
+   */
+  async markInvoiceViewed(req, res) {
+    try {
+      const { id } = req.params;
+      const userId = req.user._id;
+
+      const booking = await Booking.findOne({
+        _id: id,
+        client: userId
+      }).populate('client', 'profile')
+        .populate('provider', 'providerProfile profile');
+
+      if (!booking) {
+        return res.status(404).json({ success: false, message: 'Booking not found' });
+      }
+
+      if (!booking.invoice?.sentAt) {
+        return res.status(400).json({ success: false, message: 'No invoice sent for this booking' });
+      }
+
+      // Si ya fue vista, no re-notificar
+      if (booking.invoice.viewedAt) {
+        return res.json({
+          success: true,
+          message: 'Invoice already marked as viewed',
+          data: { viewedAt: booking.invoice.viewedAt }
+        });
+      }
+
+      // Marcar como vista
+      booking.invoice.viewedAt = new Date();
+      booking.invoice.viewedBy = userId;
+      booking.markModified('invoice');
+      await booking.save();
+
+      console.log(`👁️ Invoice viewed for booking ${id} by client ${userId}`);
+
+      // Notificar al proveedor
+      const clientName = `${booking.client?.profile?.firstName || ''} ${booking.client?.profile?.lastName || ''}`.trim() || 'Cliente';
+
+      try {
+        await notificationService.sendProviderNotification({
+          providerId: booking.provider._id || booking.provider,
+          type: 'INVOICE_VIEWED',
+          priority: 'medium',
+          data: {
+            bookingId: booking._id,
+            clientName,
+            invoiceNumber: booking.invoice.invoiceNumber || '',
+            amount: booking.invoice.total || '',
+            currency: booking.invoice.currency || 'USD'
+          }
+        });
+      } catch (notifErr) {
+        console.warn('BookingController - markInvoiceViewed: notification failed', notifErr?.message);
+      }
+
+      // Emitir actualización de contadores al proveedor
+      try {
+        emitter.emitCountersUpdateToUser(booking.provider._id || booking.provider, { reason: 'invoice_viewed' });
+      } catch { /* ignore */ }
+
+      res.json({
+        success: true,
+        message: 'Invoice marked as viewed',
+        data: { viewedAt: booking.invoice.viewedAt }
+      });
+    } catch (error) {
+      console.error('BookingController - markInvoiceViewed error:', error);
+      res.status(500).json({ success: false, message: 'Failed to mark invoice as viewed' });
     }
   }
 

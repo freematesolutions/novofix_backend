@@ -159,6 +159,24 @@ class NotificationService {
           extraData: { clientName: extra?.clientName || '', rating: extra?.rating || '', bookingId: extra?.bookingId || '' }
         };
 
+      case 'INVOICE_VIEWED':
+        return {
+          ...baseData,
+          subject: 'Factura vista por el cliente 👁️',
+          message: extra?.clientName
+            ? `${extra.clientName} ha visto tu factura${extra.invoiceNumber ? ` #${extra.invoiceNumber}` : ''}.`
+            : 'El cliente ha visto tu factura.',
+          actionUrl: '/reservas',
+          priority: 'medium',
+          extraData: {
+            clientName: extra?.clientName || '',
+            invoiceNumber: extra?.invoiceNumber || '',
+            amount: extra?.amount || '',
+            currency: extra?.currency || 'USD',
+            bookingId: extra?.bookingId || ''
+          }
+        };
+
       case 'PAYMENT_RECEIVED':
         return {
           ...baseData,
@@ -227,19 +245,24 @@ class NotificationService {
           }
         };
 
-      case 'REQUEST_UPDATED':
+      case 'REQUEST_UPDATED': {
+        const updClientName = extra?.clientName || serviceRequest?.client?.profile?.firstName || '';
         return {
           ...baseData,
           subject: 'Solicitud actualizada 📝',
-          message: `El cliente ha actualizado los detalles de la solicitud "${serviceRequest?.basicInfo?.title || ''}"`,
+          message: updClientName
+            ? `${updClientName} ha actualizado los detalles de la solicitud "${serviceRequest?.basicInfo?.title || ''}"`
+            : `El cliente ha actualizado los detalles de la solicitud "${serviceRequest?.basicInfo?.title || ''}"`,
           actionUrl: serviceRequest ? `/empleos/${serviceRequest._id}` : '/empleos',
-          priority: 'medium',
+          priority: extra?.priority || 'high',
           extraData: {
             requestTitle: extra?.requestTitle || serviceRequest?.basicInfo?.title || '',
             category: extra?.category || serviceRequest?.basicInfo?.category || '',
-            serviceRequestId: serviceRequest?._id || ''
+            serviceRequestId: serviceRequest?._id || '',
+            clientName: updClientName
           }
         };
+      }
 
       default:
         return baseData;

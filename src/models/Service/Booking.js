@@ -184,7 +184,9 @@ const bookingSchema = new mongoose.Schema({
       zip: String
     },
     sentAt: Date,
-    sentViaChat: { type: Boolean, default: false }
+    sentViaChat: { type: Boolean, default: false },
+    viewedAt: Date,
+    viewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
   }
 }, {
   timestamps: true

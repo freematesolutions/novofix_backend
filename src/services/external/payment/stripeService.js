@@ -3,9 +3,22 @@ import Stripe from 'stripe';
 
 class StripeService {
   constructor() {
-    this.stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-      apiVersion: '2023-10-16'
-    });
+    // Lazy-init: the Stripe client is created on first use so that
+    // process.env.STRIPE_SECRET_KEY is already loaded by dotenv.
+    this._stripe = null;
+  }
+
+  get stripe() {
+    if (!this._stripe) {
+      const key = process.env.STRIPE_SECRET_KEY;
+      if (!key) {
+        throw new Error(
+          'STRIPE_SECRET_KEY is not set. Make sure dotenv loaded .env.development before importing stripeService.'
+        );
+      }
+      this._stripe = new Stripe(key, { apiVersion: '2023-10-16' });
+    }
+    return this._stripe;
   }
 
   async createPaymentIntent(amount, currency = 'usd', metadata = {}) {

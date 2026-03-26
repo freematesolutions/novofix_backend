@@ -1,50 +1,114 @@
 // scripts/seedSubscriptionPlans.js
+import dotenv from 'dotenv';
 import mongoose from 'mongoose';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import SubscriptionPlan from '../models/Payment/SubscriptionPlan.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const envFile = process.env.NODE_ENV === 'production'
+  ? path.resolve(__dirname, '../../.env.production')
+  : path.resolve(__dirname, '../../.env.development');
+dotenv.config({ path: envFile });
 
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/marketplace';
 
 const seed = [
   {
     name: 'free',
-    displayName: 'Gratis',
-    price: { monthly: 0, currency: 'USD' },
-    features: { leadLimit: 1, visibilityMultiplier: 1.0, commissionRate: 15, benefits: ['multiple_categories'] },
-    stripePriceId: 'price_free',
-    isActive: true,
-    metadata: { description: 'Plan gratuito para comenzar', order: 1 }
-  },
-  {
-    name: 'basic',
     displayName: 'Básico',
-    price: { monthly: 10, currency: 'USD' },
-    features: { leadLimit: 5, visibilityMultiplier: 1.2, commissionRate: 12, benefits: ['priority_support','advanced_analytics'] },
-    stripePriceId: 'price_basic',
+    price: { monthly: 0, currency: 'USD' },
+    features: {
+      leadLimit: -1,
+      leadTypes: ['scheduled'],
+      scheduledLeadDelayHours: 24,
+      visibilityMultiplier: 1.0,
+      maxPortfolioVideos: 1,
+      verifiedBadge: false,
+      performanceReports: false,
+      profileViewsVisible: false,
+      vipSupport: false,
+      urgentLeadPriority: 0,
+      benefits: ['multiple_categories']
+    },
+    stripePriceId: '',
     isActive: true,
-    metadata: { description: 'Más visibilidad y 5 leads/mes', order: 2, mostPopular: true }
+    metadata: {
+      description: 'Ranking básico, portafolio (máx. 1 video), leads programados con retardo 24h',
+      descriptionEn: 'Basic ranking, portfolio (max 1 video), scheduled leads with 24h delay',
+      order: 1
+    }
   },
   {
-    name: 'pro',
-    displayName: 'Pro',
-    price: { monthly: 19, currency: 'USD' },
-    features: { leadLimit: -1, visibilityMultiplier: 1.5, commissionRate: 8, benefits: ['priority_support','advanced_analytics','featured_listing','custom_profile'] },
-    stripePriceId: 'price_pro',
+    name: 'expert',
+    displayName: 'Experto',
+    price: { monthly: 9.99, currency: 'USD' },
+    features: {
+      leadLimit: -1,
+      leadTypes: ['scheduled', 'urgent'],
+      scheduledLeadDelayHours: 0,
+      visibilityMultiplier: 1.5,
+      maxPortfolioVideos: -1,
+      verifiedBadge: true,
+      performanceReports: false,
+      profileViewsVisible: true,
+      vipSupport: false,
+      urgentLeadPriority: 1,
+      benefits: ['verified_badge', 'profile_views', 'multiple_categories']
+    },
+    stripePriceId: process.env.STRIPE_PRICE_EXPERT || '',
     isActive: true,
-    metadata: { description: 'Visibilidad máxima y leads ilimitados', order: 3 }
+    metadata: {
+      description: 'Notificación inmediata, badge verificado, leads ilimitados, visitas al perfil',
+      descriptionEn: 'Instant notifications, verified badge, unlimited leads, profile views',
+      order: 2,
+      mostPopular: true
+    }
+  },
+  {
+    name: 'elite',
+    displayName: 'Élite',
+    price: { monthly: 19.99, currency: 'USD' },
+    features: {
+      leadLimit: -1,
+      leadTypes: ['scheduled', 'urgent'],
+      scheduledLeadDelayHours: 0,
+      visibilityMultiplier: 2.0,
+      maxPortfolioVideos: -1,
+      verifiedBadge: true,
+      performanceReports: true,
+      profileViewsVisible: true,
+      vipSupport: true,
+      urgentLeadPriority: 2,
+      benefits: ['verified_badge', 'profile_views', 'performance_reports', 'vip_support', 'urgent_leads_first', 'featured_listing', 'multiple_categories']
+    },
+    stripePriceId: process.env.STRIPE_PRICE_ELITE || '',
+    isActive: true,
+    metadata: {
+      description: 'Top resultados, urgentes primero, reportes mensuales, soporte VIP',
+      descriptionEn: 'Top results, urgent leads first, monthly reports, VIP support',
+      order: 3
+    }
   }
 ];
 
 async function run() {
   await mongoose.connect(MONGODB_URI);
-  const existing = await SubscriptionPlan.find({}).lean();
-  const have = new Set(existing.map(p => p.name));
-  const toCreate = seed.filter(p => !have.has(p.name));
-  if (toCreate.length) {
-    await SubscriptionPlan.insertMany(toCreate);
-    console.log(`Inserted ${toCreate.length} plans.`);
-  } else {
-    console.log('Plans already seeded.');
+
+  // Remove old plans that no longer exist (basic, pro)
+  await SubscriptionPlan.deleteMany({ name: { $in: ['basic', 'pro'] } });
+  console.log('Cleaned up legacy plans (basic, pro).');
+
+  for (const plan of seed) {
+    await SubscriptionPlan.findOneAndUpdate(
+      { name: plan.name },
+      { $set: plan },
+      { upsert: true, new: true }
+    );
+    console.log(`Upserted plan: ${plan.name}`);
   }
+
+  console.log('All plans seeded successfully.');
   await mongoose.disconnect();
 }
 

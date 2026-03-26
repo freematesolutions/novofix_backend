@@ -26,16 +26,17 @@ class ProposalController {
 
   /**
    * Helper: derive commission rate (decimal) from provider billing or plan
+   * Note: With the new subscription model, commissions may not apply to
+   * subscription-only revenue. Kept for backward compatibility with bookings.
    */
   deriveCommissionRate(provider) {
     const raw = provider?.billing?.commissionRate;
     if (typeof raw === 'number' && raw > 0) {
-      // Stored as percentage (e.g. 15, 12, 8)
       return raw / 100;
     }
     const plan = provider?.subscription?.plan;
-    if (plan === 'pro') return 0.08;
-    if (plan === 'basic') return 0.12;
+    if (plan === 'elite') return 0.08;
+    if (plan === 'expert') return 0.12;
     return 0.15; // free default
   }
 

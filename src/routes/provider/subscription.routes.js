@@ -3,7 +3,6 @@ import express from 'express';
 import { authenticateJWT, requireAuth } from '../../middlewares/auth/jwtAuth.js';
 import { providerOnly } from '../../middlewares/auth/rbacMiddleware.js';
 import subscriptionService from '../../services/internal/subscriptionService.js';
-import SubscriptionPlan from '../../models/Payment/SubscriptionPlan.js';
 import Provider from '../../models/User/Provider.js';
 
 const router = express.Router();
@@ -12,13 +11,10 @@ router.use(authenticateJWT);
 router.use(requireAuth);
 router.use(providerOnly);
 
-// List active plans
+// ─── List active plans ───
 router.get('/plans', async (req, res) => {
   try {
-    await subscriptionService.ensurePlansSeeded();
-    const plans = await SubscriptionPlan.find({ isActive: true })
-      .sort({ 'metadata.order': 1 })
-      .lean();
+    const plans = await subscriptionService.getAllActivePlans();
     res.json({ success: true, data: { plans } });
   } catch (error) {
     console.error('GET /provider/subscription/plans error:', error);
@@ -26,19 +22,18 @@ router.get('/plans', async (req, res) => {
   }
 });
 
-// Current subscription status
+// ─── Current subscription status ───
 router.get('/status', async (req, res) => {
   try {
     const provider = await Provider.findById(req.user._id).lean();
     const canLead = await subscriptionService.canReceiveLead(provider);
-    const charge = await subscriptionService.computeMonthlyCharge(provider);
+    const plan = await subscriptionService.getPlan(provider.subscription?.plan || 'free');
     res.json({
       success: true,
       data: {
         subscription: provider.subscription,
-        plan: await subscriptionService.getPlan(provider.subscription?.plan || 'free'),
-        canReceiveLead: canLead,
-        monthlyCharge: charge
+        plan,
+        canReceiveLead: canLead
       }
     });
   } catch (error) {
@@ -47,23 +42,87 @@ router.get('/status', async (req, res) => {
   }
 });
 
-// Change plan
-router.post('/change', async (req, res) => {
+// ─── Create Stripe Checkout Session (upgrade to paid plan) ───
+router.post('/checkout', async (req, res) => {
   try {
     const { planName } = req.body || {};
-    if (!['free', 'basic', 'pro'].includes(planName)) {
-      return res.status(400).json({ success: false, message: 'Invalid plan' });
+    if (!['expert', 'elite'].includes(planName)) {
+      return res.status(400).json({ success: false, message: 'Invalid plan. Choose expert or elite.' });
     }
-    await subscriptionService.changePlan(req.user._id, planName);
+
     const provider = await Provider.findById(req.user._id).lean();
-    res.json({ success: true, message: 'Plan actualizado', data: { subscription: provider.subscription } });
+    if (!provider) {
+      return res.status(404).json({ success: false, message: 'Provider not found' });
+    }
+
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const successUrl = `${frontendUrl}/plan?checkout=success&plan=${planName}`;
+    const cancelUrl = `${frontendUrl}/plan?checkout=canceled`;
+
+    const session = await subscriptionService.createCheckoutSession(
+      provider,
+      planName,
+      successUrl,
+      cancelUrl
+    );
+
+    res.json({
+      success: true,
+      data: { checkoutUrl: session.url, sessionId: session.id }
+    });
   } catch (error) {
-    console.error('POST /provider/subscription/change error:', error);
-    res.status(500).json({ success: false, message: 'Failed to change plan' });
+    console.error('POST /provider/subscription/checkout error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Failed to create checkout session' });
   }
 });
 
-// Apply referral code (current provider sets who referred them)
+// ─── Downgrade to Free (no Stripe interaction needed for downgrade) ───
+router.post('/downgrade', async (req, res) => {
+  try {
+    const provider = await Provider.findById(req.user._id).lean();
+    if (!provider) {
+      return res.status(404).json({ success: false, message: 'Provider not found' });
+    }
+
+    // Cancel Stripe subscription if exists, at period end
+    const result = await subscriptionService.cancelSubscription(req.user._id, false);
+    
+    res.json({
+      success: true,
+      message: result.downgraded 
+        ? 'Plan changed to free' 
+        : 'Subscription will be canceled at end of current period',
+      data: result
+    });
+  } catch (error) {
+    console.error('POST /provider/subscription/downgrade error:', error);
+    res.status(500).json({ success: false, message: 'Failed to downgrade plan' });
+  }
+});
+
+// ─── Cancel subscription (at end of period) ───
+router.post('/cancel', async (req, res) => {
+  try {
+    const result = await subscriptionService.cancelSubscription(req.user._id, false);
+    res.json({ success: true, message: 'Subscription will cancel at end of period', data: result });
+  } catch (error) {
+    console.error('POST /provider/subscription/cancel error:', error);
+    res.status(500).json({ success: false, message: 'Failed to cancel subscription' });
+  }
+});
+
+// ─── Reactivate (undo cancellation) ───
+router.post('/reactivate', async (req, res) => {
+  try {
+    const result = await subscriptionService.reactivateSubscription(req.user._id);
+    res.json({ success: true, message: 'Subscription reactivated', data: result });
+  } catch (error) {
+    console.error('POST /provider/subscription/reactivate error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Failed to reactivate' });
+  }
+});
+
+// ─── Apply referral code ───
 router.post('/apply-referral', async (req, res) => {
   try {
     const { code } = req.body || {};

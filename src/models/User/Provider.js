@@ -126,23 +126,23 @@ const providerSchema = new mongoose.Schema({
   subscription: {
     plan: {
       type: String,
-      enum: ['free', 'basic', 'pro'],
+      enum: ['free', 'expert', 'elite'],
       default: 'free'
     },
     status: {
       type: String,
       enum: ['active', 'inactive', 'canceled', 'past_due'],
-      default: 'inactive'
+      default: 'active' // free plan is active by default
     },
+    stripeCustomerId: String,
     stripeSubscriptionId: String,
     currentPeriodStart: Date,
     currentPeriodEnd: Date,
-    cancelAtPeriodEnd: Boolean,
+    cancelAtPeriodEnd: { type: Boolean, default: false },
     leadsUsed: { type: Number, default: 0 },
     lastLeadAt: Date
   },
   billing: {
-    commissionRate: Number, // Según plan (15%, 12%, 8%)
     taxId: String,
     paymentMethod: {
       type: String,

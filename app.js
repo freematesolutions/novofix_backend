@@ -12,6 +12,7 @@ import { fileURLToPath } from 'url';
 
 // Importar rutas
 import routes from './src/routes/index.js';
+import stripeWebhookRoutes from './src/routes/shared/stripeWebhook.routes.js';
 
 // server/src/app.js (actualización)
 import redisClient from './src/config/redis.js';
@@ -51,6 +52,11 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Session-Id', 'X-Client-Id']
 }));
+
+// ─── Stripe Webhook — MUST be before express.json() AND auth middleware ───
+// Stripe needs the raw body for signature verification and should NOT
+// go through session/JWT middleware (server-to-server call).
+app.use('/webhooks/stripe', stripeWebhookRoutes);
 
 // Session and Auth middlewares (orden recomendado)
 // Allow skipping heavy session DB operations during tests
@@ -216,7 +222,11 @@ app.get('/health', async (req, res) => {
         SENDGRID_API_KEY: !!process.env.SENDGRID_API_KEY,
         RESEND_API_KEY: !!process.env.RESEND_API_KEY,
         EMAIL_MODE: process.env.EMAIL_MODE || 'auto',
-        AUTO_VERIFY_EMAIL: process.env.AUTO_VERIFY_EMAIL || 'false'
+        AUTO_VERIFY_EMAIL: process.env.AUTO_VERIFY_EMAIL || 'false',
+        STRIPE_SECRET_KEY: !!process.env.STRIPE_SECRET_KEY,
+        STRIPE_WEBHOOK_SECRET: !!(process.env.STRIPE_WEBHOOK_SECRET && !process.env.STRIPE_WEBHOOK_SECRET.includes('REPLACE')),
+        STRIPE_PRICE_EXPERT: !!process.env.STRIPE_PRICE_EXPERT,
+        STRIPE_PRICE_ELITE: !!process.env.STRIPE_PRICE_ELITE
       }
     });
   } catch (error) {

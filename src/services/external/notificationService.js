@@ -264,6 +264,29 @@ class NotificationService {
         };
       }
 
+      case 'SUBSCRIPTION_ACTIVATED': {
+        const activatedPlan = extra?.planName || 'expert';
+        return {
+          ...baseData,
+          subject: '¡Suscripción activada! 🎉',
+          message: `Tu plan ${activatedPlan.charAt(0).toUpperCase() + activatedPlan.slice(1)} ha sido activado exitosamente.`,
+          actionUrl: '/plan',
+          priority: 'high',
+          extraData: { planName: activatedPlan }
+        };
+      }
+
+      case 'SUBSCRIPTION_DOWNGRADED': {
+        return {
+          ...baseData,
+          subject: 'Plan actualizado',
+          message: 'Tu suscripción ha sido cancelada. Ahora estás en el plan Básico gratuito.',
+          actionUrl: '/plan',
+          priority: 'medium',
+          extraData: { planName: 'free' }
+        };
+      }
+
       default:
         return baseData;
     }

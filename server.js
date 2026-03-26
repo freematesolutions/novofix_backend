@@ -104,6 +104,15 @@ async function startServer() {
     // 1. Conectar a MongoDB
     await connectDB();
 
+    // 1.5 Seed subscription plans so they exist before first API call
+    try {
+      const subscriptionService = (await import('./src/services/internal/subscriptionService.js')).default;
+      await subscriptionService.ensurePlansSeeded();
+      console.log('[💳 PLANS] Subscription plans seeded/verified ✅');
+    } catch (planErr) {
+      console.warn('[💳 PLANS] Could not seed plans:', planErr.message);
+    }
+
     // 2. Esperar a que Redis esté listo
     await waitForRedisReady(redisClient);
 
@@ -122,7 +131,7 @@ async function startServer() {
       console.log(`🗄️ Database: Connected`);
       console.log(`📧 Email: ${process.env.EMAIL_MODE || 'auto'} (GMAIL: ${process.env.GMAIL_USER ? '✅' : '❌'})`);
       console.log(`☁️ Cloudinary: ${process.env.CLOUDINARY_CLOUD_NAME ? 'Ready' : 'Not configured'}`);
-      console.log(`💳 Stripe: ${process.env.STRIPE_SECRET_KEY ? 'Ready' : 'Not configured'}`);
+      console.log(`💳 Stripe: ${process.env.STRIPE_SECRET_KEY ? 'Key ✅' : 'Key ❌'} | Webhook: ${process.env.STRIPE_WEBHOOK_SECRET && !process.env.STRIPE_WEBHOOK_SECRET.includes('REPLACE') ? 'Secret ✅' : '⚠️  Placeholder'} | Expert Price: ${process.env.STRIPE_PRICE_EXPERT ? '✅' : '❌'} | Elite Price: ${process.env.STRIPE_PRICE_ELITE ? '✅' : '❌'}`);
       console.log(`🧠 Redis: Connected`);
       console.log('='.repeat(50));
       console.log(`📡 API running on: http://localhost:${PORT}/api`);

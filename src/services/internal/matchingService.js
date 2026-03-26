@@ -57,7 +57,7 @@ class MatchingService {
       }
 
       // Filtro por disponibilidad si es programado
-      if (serviceRequest.basicInfo.urgency === 'scheduled' && serviceRequest.scheduling.preferredDate) {
+      if (serviceRequest.basicInfo.urgency === 'scheduled' && serviceRequest.scheduling?.preferredDate) {
         query = await this.addAvailabilityFilter(query, serviceRequest.scheduling);
       }
 
@@ -73,9 +73,30 @@ class MatchingService {
         })
       ).then(list => list.filter(Boolean));
 
-      // Calcular puntuación para cada proveedor
+      // ─── Urgency-based filtering ───
+      // Urgent (immediate): only expert/elite providers
+      // Scheduled: all providers, but free-plan providers get delayed notification
+      const requestUrgency = urgency; // 'immediate' | 'scheduled'
+      const immediateProviders = [];
+      const delayedProviders = [];   // free-plan providers for scheduled leads
+
+      await Promise.all(
+        providers.map(async (p) => {
+          const result = await subscriptionService.canReceiveLeadByUrgency(p, requestUrgency);
+          if (result.allowed) {
+            if (result.delayHours > 0) {
+              delayedProviders.push({ provider: p, delayHours: result.delayHours });
+            } else {
+              immediateProviders.push(p);
+            }
+          }
+          // If !allowed → provider excluded entirely (e.g. free plan on urgent lead)
+        })
+      );
+
+      // Calcular puntuación para proveedores inmediatos
       const scoredProviders = await Promise.all(
-        providers.map(async (provider) => {
+        immediateProviders.map(async (provider) => {
           const score = await scoringService.calculateProviderScore(provider);
           return {
             provider: provider._id,
@@ -95,10 +116,32 @@ class MatchingService {
       // Ordenar por puntuación descendente
       scoredProviders.sort((a, b) => b.score - a.score);
 
+      // Score delayed providers too
+      const scoredDelayed = await Promise.all(
+        delayedProviders.map(async ({ provider, delayHours }) => {
+          const score = await scoringService.calculateProviderScore(provider);
+          return {
+            provider: provider._id,
+            score: score.total,
+            delayHours,
+            details: score,
+            profile: {
+              businessName: provider.providerProfile.businessName,
+              rating: provider.providerProfile.rating,
+              services: provider.providerProfile.services,
+              subscription: provider.subscription.plan,
+              portfolio: provider.providerProfile.portfolio || []
+            }
+          };
+        })
+      );
+      scoredDelayed.sort((a, b) => b.score - a.score);
+
       const result = {
         serviceRequest: serviceRequestId,
         eligibleProviders: scoredProviders,
-        totalCount: scoredProviders.length,
+        delayedProviders: scoredDelayed,
+        totalCount: scoredProviders.length + scoredDelayed.length,
         calculatedAt: new Date()
       };
 
@@ -140,6 +183,7 @@ class MatchingService {
   async notifyProviders(serviceRequestId, notificationType = 'auto', selectedProviderIds = []) {
     try {
       let providersToNotify = [];
+      let delayedToNotify = [];
 
       if (notificationType === 'directed' && selectedProviderIds.length > 0) {
         // For directed notifications, honor client selection regardless of geo/category filters
@@ -156,8 +200,9 @@ class MatchingService {
           }
         }));
       } else {
-        const { eligibleProviders } = await this.findEligibleProviders(serviceRequestId);
-        providersToNotify = eligibleProviders;
+        const matching = await this.findEligibleProviders(serviceRequestId);
+        providersToNotify = matching.eligibleProviders;
+        delayedToNotify = matching.delayedProviders || [];
       }
 
       // Limitar notificaciones según mejores puntuaciones
@@ -180,7 +225,7 @@ class MatchingService {
               }
             });
 
-            // Enviar notificación
+            // Enviar notificación inmediata
             await notificationService.sendProviderNotification({
               providerId: provider.provider,
               serviceRequestId,
@@ -207,9 +252,59 @@ class MatchingService {
         })
       );
 
+      // ─── Schedule delayed notifications for free-plan providers ───
+      const topDelayed = delayedToNotify.slice(0, 15);
+      let delayedCount = 0;
+      for (const entry of topDelayed) {
+        const delayMs = (entry.delayHours || 24) * 60 * 60 * 1000;
+        setTimeout(async () => {
+          try {
+            // Re-check request is still active before notifying
+            const sr = await ServiceRequest.findById(serviceRequestId).lean();
+            if (!sr || !['published', 'active'].includes(sr.status)) return;
+
+            // Re-check provider can still receive leads
+            const canLead = await subscriptionService.canReceiveLead(entry.provider);
+            if (!canLead) return;
+
+            await subscriptionService.incrementLeadUsage(entry.provider);
+
+            await ServiceRequest.findByIdAndUpdate(serviceRequestId, {
+              $addToSet: {
+                eligibleProviders: {
+                  provider: entry.provider,
+                  score: entry.score || 0,
+                  notified: true,
+                  notifiedAt: new Date()
+                }
+              }
+            });
+
+            await notificationService.sendProviderNotification({
+              providerId: entry.provider,
+              serviceRequestId,
+              type: 'NEW_REQUEST',
+              priority: 'medium'
+            });
+
+            try { emitter.emitCountersUpdateToUser(entry.provider, { reason: 'new_request' }); } catch { /* ignore */ }
+
+            console.log(`[Matching] Delayed notification sent to free-plan provider ${entry.provider} after ${entry.delayHours}h`);
+          } catch (err) {
+            console.error(`[Matching] Delayed notification failed for provider ${entry.provider}:`, err.message);
+          }
+        }, delayMs);
+        delayedCount++;
+      }
+
+      if (delayedCount > 0) {
+        console.log(`[Matching] Scheduled ${delayedCount} delayed notifications (${topDelayed[0]?.delayHours || 24}h) for free-plan providers on request ${serviceRequestId}`);
+      }
+
       return {
         totalNotified: notificationResults.filter(r => r.value?.notified).length,
         totalFailed: notificationResults.filter(r => !r.value?.notified).length,
+        totalDelayed: delayedCount,
         results: notificationResults.map(r => r.value)
       };
     } catch (error) {

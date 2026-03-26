@@ -227,9 +227,9 @@ const requireActiveSubscription = async (req, res, next) => {
  */
 function getPlanLimits(plan) {
   const limits = {
-    free: { leadLimit: 1, visibilityMultiplier: 1.0 },
-    basic: { leadLimit: 5, visibilityMultiplier: 1.2 },
-    pro: { leadLimit: -1, visibilityMultiplier: 1.5 } // -1 = ilimitado
+    free:   { leadLimit: -1, visibilityMultiplier: 1.0, leadTypes: ['scheduled'], scheduledLeadDelayHours: 24 },
+    expert: { leadLimit: -1, visibilityMultiplier: 1.5, leadTypes: ['scheduled', 'urgent'], scheduledLeadDelayHours: 0 },
+    elite:  { leadLimit: -1, visibilityMultiplier: 2.0, leadTypes: ['scheduled', 'urgent'], scheduledLeadDelayHours: 0 }
   };
 
   return limits[plan] || limits.free;
@@ -251,8 +251,8 @@ const checkLeadLimit = async (req, res, next) => {
     const provider = await Provider.findById(req.user._id);
     const plan = provider.subscription.plan;
 
-    if (plan === 'pro') {
-      return next(); // Plan pro no tiene límites
+    if (plan === 'elite' || plan === 'expert') {
+      return next(); // Paid plans have unlimited leads
     }
 
     const leadLimit = getPlanLimits(plan).leadLimit;

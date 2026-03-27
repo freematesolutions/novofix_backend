@@ -134,7 +134,7 @@ describe('Plan Seeding & Retrieval', () => {
     await subscriptionService.ensurePlansSeeded();
     const expert = await subscriptionService.getPlan('expert');
     expect(expert.name).toBe('expert');
-    expect(expert.price.monthly).toBe(9.99);
+    expect(expert.price.monthly).toBe(4.99);
     expect(expert.features.leadTypes).toContain('urgent');
     expect(expert.features.verifiedBadge).toBe(true);
   });
@@ -150,8 +150,8 @@ describe('Plan Seeding & Retrieval', () => {
     const priceMap = {};
     plans.forEach(p => { priceMap[p.name] = p.price.monthly; });
     expect(priceMap.free).toBe(0);
-    expect(priceMap.expert).toBe(9.99);
-    expect(priceMap.elite).toBe(19.99);
+    expect(priceMap.expert).toBe(4.99);
+    expect(priceMap.elite).toBe(9.99);
   });
 
   it('should have stripePriceId set for paid plans from env', async () => {
@@ -250,11 +250,12 @@ describe('canReceiveLeadByUrgency', () => {
 
   // ─── Scheduled leads ───
 
-  it('FREE plan: should receive scheduled leads with 24h delay', async () => {
+  it('FREE plan: should receive scheduled leads with delay until next 6 PM batch', async () => {
     const provider = await createProvider({ subscription: { plan: 'free', status: 'active', currentPeriodEnd: new Date(Date.now() + 86400000) } });
     const result = await subscriptionService.canReceiveLeadByUrgency(provider, 'scheduled');
     expect(result.allowed).toBe(true);
-    expect(result.delayHours).toBe(24);
+    expect(result.delayHours).toBeGreaterThan(0);
+    expect(result.delayHours).toBeLessThanOrEqual(24);
   });
 
   it('EXPERT plan: should receive scheduled leads immediately', async () => {

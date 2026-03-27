@@ -21,16 +21,16 @@ const PLANS = [
   {
     envKey: 'STRIPE_PRICE_EXPERT',
     productName: 'NovoFix Expert Plan',
-    description: 'Expert subscription — urgent + scheduled leads, verified badge, 3 portfolio videos',
-    priceAmount: 999,   // $9.99 in cents
+    description: 'Expert subscription — urgent + scheduled leads, verified badge, unlimited portfolio',
+    priceAmount: 499,   // $4.99 in cents
     currency: 'usd',
     interval: 'month',
   },
   {
     envKey: 'STRIPE_PRICE_ELITE',
     productName: 'NovoFix Elite Plan',
-    description: 'Elite subscription — unlimited leads, VIP support, performance reports, 10 portfolio videos',
-    priceAmount: 1999,  // $19.99 in cents
+    description: 'Elite subscription — unlimited leads, VIP support, performance reports, unlimited portfolio',
+    priceAmount: 999,   // $9.99 in cents
     currency: 'usd',
     interval: 'month',
   },

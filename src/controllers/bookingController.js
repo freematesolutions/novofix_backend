@@ -10,6 +10,7 @@ import stripeService from '../services/external/payment/stripeService.js';
 import { SocketService } from '../websocket/services/socketService.js';
 import emitter from '../websocket/services/emitterService.js';
 import cloudinary from '../config/cloudinary.js';
+import { scheduleReviewNudge } from '../services/internal/nudgeProcessor.js';
 
 class BookingController {
   /**
@@ -795,9 +796,7 @@ class BookingController {
    */
   async enableReviewSystem(booking) {
     try {
-      // Esta función prepara el sistema para que el cliente pueda dejar una review
-      // La creación real de la review se maneja en el ReviewController
-      
+      // Enviar notificación inmediata al cliente (REVIEW_REQUEST)
       await notificationService.sendClientNotification({
         clientId: booking.client,
         type: 'REVIEW_REQUEST',
@@ -806,9 +805,26 @@ class BookingController {
           providerName: booking.provider.providerProfile.businessName
         }
       });
+
+      // Programar un nudge de seguimiento a las 24 horas si el cliente no deja reseña
+      await scheduleReviewNudge({
+        bookingId: booking._id,
+        clientId: booking.client,
+        providerId: booking.provider._id,
+        providerName: booking.provider.providerProfile?.businessName || ''
+      });
     } catch (error) {
       console.error('BookingController - enableReviewSystem error:', error);
     }
+  }
+
+  /**
+   * Programar un nudge de reseña 24 horas después de completar el servicio.
+   * Si el cliente ya dejó reseña, no se envía.
+   * @deprecated Use scheduleReviewNudge from nudgeProcessor instead. Kept for backward compat.
+   */
+  scheduleReviewNudge(bookingId, clientId, provider) {
+    // Now handled by persistent nudgeProcessor — this method is a no-op
   }
 
   /**

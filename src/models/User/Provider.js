@@ -104,7 +104,8 @@ const providerSchema = new mongoose.Schema({
         professionalism: { type: Number, default: 0 },
         quality: { type: Number, default: 0 },
         punctuality: { type: Number, default: 0 },
-        communication: { type: Number, default: 0 }
+        communication: { type: Number, default: 0 },
+        valueForMoney: { type: Number, default: 0 }
       }
     },
     stats: {
@@ -162,7 +163,26 @@ const providerSchema = new mongoose.Schema({
       ref: 'Provider'
     },
     referralsCount: { type: Number, default: 0 },
+    // Días de Plan Experto ganados por referidos (7 días por cada referido, máximo 30)
+    earnedDays: { type: Number, default: 0 },
+    // Fecha en que expira el bonus de referido (earnedDays desde la primera aplicación)
+    bonusExpiresAt: Date,
+    // Indica si el bonus de referido está activo (plan Experto temporal)
+    bonusActive: { type: Boolean, default: false },
+    // Historial de usuarios referidos (clientes o proveedores)
+    referredUsers: [{
+      userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      userRole: { type: String, enum: ['client', 'provider'] },
+      daysAwarded: { type: Number, default: 7 },
+      registeredAt: { type: Date, default: Date.now }
+    }],
+    // LEGACY: mantener para migración (remover en futuras versiones)
     discountMonths: { type: Number, default: 0 }
+  },
+  // Milestones de reseñas: "Recibe tu primera reseña" y "Consigue 3 reseñas → 3 días Experto"
+  reviewMilestones: {
+    firstReviewAcknowledged: { type: Boolean, default: false },
+    threeReviewsRewarded: { type: Boolean, default: false }
   },
   score: {
     total: { type: Number, default: 0 },
@@ -187,10 +207,7 @@ providerSchema.index(
 providerSchema.index({ 'subscription.plan': 1, 'score.total': -1 });
 providerSchema.index({ 'referral.code': 1 }, { unique: false });
 
-const Provider = User.discriminator('Provider', providerSchema);
-export default Provider;
-
-// Sanitize invalid GeoJSON before saving
+// Sanitize invalid GeoJSON before saving (MUST be before discriminator() call)
 providerSchema.pre('validate', function(next) {
   try {
     const loc = this?.providerProfile?.serviceArea?.location;
@@ -205,3 +222,6 @@ providerSchema.pre('validate', function(next) {
     next();
   }
 });
+
+const Provider = User.discriminator('Provider', providerSchema);
+export default Provider;

@@ -287,6 +287,76 @@ class NotificationService {
         };
       }
 
+      case 'REFERRAL_BONUS': {
+        const daysAwarded = extra?.daysAwarded || 7;
+        const totalDays = extra?.totalDays || 7;
+        const newUserName = extra?.newUserName || '';
+        const newUserRole = extra?.newUserRole || 'usuario';
+        return {
+          ...baseData,
+          subject: '🎉 ¡Alguien usó tu código de referido!',
+          message: daysAwarded > 0
+            ? `${newUserName} se registró con tu código. ¡Ganaste ${daysAwarded} días de Plan Experto! Total acumulado: ${totalDays} días.`
+            : `${newUserName} se registró con tu código. Ya alcanzaste el máximo de días de bonificación.`,
+          actionUrl: '/referidos',
+          priority: 'high',
+          extraData: {
+            daysAwarded,
+            totalDays,
+            bonusExpiresAt: extra?.bonusExpiresAt || '',
+            newUserName,
+            newUserRole
+          }
+        };
+      }
+
+      case 'REFERRAL_BONUS_EXPIRED': {
+        return {
+          ...baseData,
+          subject: 'Tu bonus de referido ha expirado',
+          message: 'Tu periodo de Plan Experto por referidos ha finalizado. ¡Suscríbete para mantener los beneficios!',
+          actionUrl: '/plan',
+          priority: 'medium',
+          extraData: {}
+        };
+      }
+
+      case 'REVIEW_MILESTONE_FIRST': {
+        const reviewsNeeded = extra?.reviewsNeeded ?? 2;
+        const daysToEarn = extra?.daysToEarn ?? 3;
+        return {
+          ...baseData,
+          subject: '🎉 ¡Tu primera reseña!',
+          message: `¡Felicitaciones! Recibiste tu primera reseña. Consigue ${reviewsNeeded} más y gana ${daysToEarn} días de Plan Experto gratis.`,
+          actionUrl: '/reservas',
+          priority: 'high',
+          extraData: { reviewsNeeded, daysToEarn }
+        };
+      }
+
+      case 'REVIEW_MILESTONE_THREE': {
+        const daysAwarded = extra?.daysAwarded ?? 3;
+        return {
+          ...baseData,
+          subject: '🏆 ¡3 reseñas! Ganaste días Experto gratis',
+          message: `¡Increíble! Alcanzaste 3 reseñas y ganaste ${daysAwarded} días de Plan Experto. ¡Sigue así!`,
+          actionUrl: '/plan',
+          priority: 'high',
+          extraData: { daysAwarded, reviewCount: extra?.reviewCount || 3 }
+        };
+      }
+
+      case 'REVIEW_RESPONSE_NUDGE': {
+        return {
+          ...baseData,
+          subject: '💬 Una reseña espera tu respuesta',
+          message: 'Un cliente dejó una reseña sobre tu servicio. Responder mejora tu visibilidad y genera confianza.',
+          actionUrl: '/resenas',
+          priority: 'medium',
+          extraData: { reviewId: extra?.reviewId || '', rating: extra?.rating || 0 }
+        };
+      }
+
       default:
         return baseData;
     }
@@ -630,6 +700,17 @@ class NotificationService {
             currency: extra?.currency || 'USD',
             bookingId: extra?.bookingId || ''
           }
+        };
+      case 'REVIEW_NUDGE':
+        return {
+          ...base,
+          subject: '⭐ ¿Cómo fue tu experiencia?',
+          message: extra?.providerName
+            ? `¿Qué tal fue el servicio con ${extra.providerName}? Tu opinión ayuda a otros.`
+            : 'Tu servicio se completó. ¡Cuéntanos tu experiencia!',
+          actionUrl: '/reservas',
+          priority: 'medium',
+          extraData: { providerName: extra?.providerName || '', bookingId: extra?.bookingId || '' }
         };
       default:
         return {

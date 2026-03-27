@@ -30,7 +30,7 @@ class AuthController {
    */
   async registerClient(req, res) {
     try {
-      const { email, password, firstName, lastName, phone, guestSessionId } = req.body;
+      const { email, password, firstName, lastName, phone, guestSessionId, referredByCode } = req.body;
 
       // Verificar si el usuario ya existe
       const existingUser = await User.findOne({ email });
@@ -102,6 +102,37 @@ class AuthController {
 
       // NO generar tokens para usuario no verificado
       // Solo devolver información básica del usuario
+
+      // Aplicar código de referido si aplica (nuevo usuario cliente referido por un proveedor)
+      if (referredByCode && typeof referredByCode === 'string') {
+        try {
+          const referralResult = await subscriptionService.applyReferralCode(referredByCode, {
+            userId: client._id,
+            role: 'client'
+          });
+          if (referralResult?.referrerId) {
+            console.log(`[Referral] Client ${email} referred by provider ${referralResult.referrerId} — awarded ${referralResult.daysAwarded} days`);
+            // Notify the referrer about their bonus
+            try {
+              await notificationService.sendProviderNotification({
+                providerId: referralResult.referrerId,
+                type: 'REFERRAL_BONUS',
+                data: {
+                  daysAwarded: referralResult.daysAwarded,
+                  totalDays: referralResult.totalDays,
+                  bonusExpiresAt: referralResult.bonusExpiresAt,
+                  newUserName: firstName || email,
+                  newUserRole: 'client'
+                }
+              });
+            } catch (notifErr) {
+              console.warn('Referral bonus notification failed:', notifErr?.message);
+            }
+          }
+        } catch (e) {
+          console.warn('Client referral code apply failed:', e?.message);
+        }
+      }
 
       // Notificación de bienvenida para cliente (solo in-app, no email)
       try {
@@ -250,8 +281,8 @@ class AuthController {
         });
       }
 
-      // Generar código de referido
-      const referralCode = AuthController.generateReferralCode(businessName);
+      // Generar código de referido (con verificación de unicidad)
+      const referralCode = await AuthController.generateReferralCode(businessName);
 
       // Ensure plans exist
       await subscriptionService.ensurePlansSeeded();
@@ -334,9 +365,29 @@ class AuthController {
       // Aplicar código de referido si aplica
       if (referredByCode && typeof referredByCode === 'string') {
         try {
-          const referrerId = await subscriptionService.applyReferralCode(referredByCode);
-          if (referrerId) {
-            await Provider.findByIdAndUpdate(provider._id, { $set: { 'referral.referredBy': referrerId } });
+          const referralResult = await subscriptionService.applyReferralCode(referredByCode, {
+            userId: provider._id,
+            role: 'provider'
+          });
+          if (referralResult?.referrerId) {
+            await Provider.findByIdAndUpdate(provider._id, { $set: { 'referral.referredBy': referralResult.referrerId } });
+            console.log(`[Referral] Provider ${email} referred by ${referralResult.referrerId} — awarded ${referralResult.daysAwarded} days`);
+            // Notify the referrer about their bonus
+            try {
+              await notificationService.sendProviderNotification({
+                providerId: referralResult.referrerId,
+                type: 'REFERRAL_BONUS',
+                data: {
+                  daysAwarded: referralResult.daysAwarded,
+                  totalDays: referralResult.totalDays,
+                  bonusExpiresAt: referralResult.bonusExpiresAt,
+                  newUserName: businessName || email,
+                  newUserRole: 'provider'
+                }
+              });
+            } catch (notifErr) {
+              console.warn('Referral bonus notification failed:', notifErr?.message);
+            }
           }
         } catch (e) {
           console.warn('Referral code apply failed:', e?.message);
@@ -809,7 +860,8 @@ class AuthController {
         mainServiceName,
         serviceArea,
         phone,
-        referredBy
+        referredBy,
+        referredByCode
       } = req.body;
 
       const fallbackServices = (!services || !Array.isArray(services) || services.length === 0) && mainServiceCategory
@@ -828,7 +880,7 @@ class AuthController {
         return res.status(400).json({ success: false, message: 'Business name is required and must be a string' });
       }
 
-      const referralCode = AuthController.generateReferralCode(businessName);
+      const referralCode = await AuthController.generateReferralCode(businessName);
 
       const svcAreaSet = {};
       if (serviceArea) {
@@ -873,7 +925,7 @@ class AuthController {
             'subscription.status': 'active',
             'billing.commissionRate': freePlan.features.commissionRate,
             'referral.code': referralCode,
-            'referral.referredBy': referredBy || null,
+            'referral.referredBy': null,
             guestSessionId: req.session?.sessionId || null
           },
           $addToSet: { roles: { $each: ['provider', 'client'] } }
@@ -887,6 +939,38 @@ class AuthController {
       }
 
       const providerUser = await Provider.findById(userId);
+
+      // Aplicar código de referido si aplica (becomeProvider)
+      if ((referredByCode || referredBy) && typeof (referredByCode || referredBy) === 'string') {
+        try {
+          const code = referredByCode || referredBy;
+          const referralResult = await subscriptionService.applyReferralCode(code, {
+            userId: providerUser._id,
+            role: 'provider'
+          });
+          if (referralResult?.referrerId) {
+            await Provider.findByIdAndUpdate(userId, { $set: { 'referral.referredBy': referralResult.referrerId } });
+            console.log(`[Referral] becomeProvider ${userId} referred by ${referralResult.referrerId} — awarded ${referralResult.daysAwarded} days`);
+            try {
+              await notificationService.sendProviderNotification({
+                providerId: referralResult.referrerId,
+                type: 'REFERRAL_BONUS',
+                data: {
+                  daysAwarded: referralResult.daysAwarded,
+                  totalDays: referralResult.totalDays,
+                  bonusExpiresAt: referralResult.bonusExpiresAt,
+                  newUserName: businessName,
+                  newUserRole: 'provider'
+                }
+              });
+            } catch (notifErr) {
+              console.warn('Referral bonus notification failed:', notifErr?.message);
+            }
+          }
+        } catch (e) {
+          console.warn('becomeProvider referral code apply failed:', e?.message);
+        }
+      }
 
       if (req.session?.sessionId && updatedUser) {
         req.user = updatedUser;
@@ -1253,16 +1337,27 @@ class AuthController {
   }
 
   /**
-   * Generar código de referido
+   * Generar código de referido único (con verificación de colisiones).
+   * Usa 6 chars del nombre + 6 chars aleatorios = ~2.2 mil millones de combinaciones.
+   * Reintenta hasta 10 veces si detecta duplicado.
    */
-  static generateReferralCode(businessName) {
+  static async generateReferralCode(businessName) {
     const base = businessName
       .replace(/\s+/g, '')
       .toUpperCase()
       .slice(0, 6);
-    
+
+    const MAX_RETRIES = 10;
+    for (let i = 0; i < MAX_RETRIES; i++) {
+      const random = Math.random().toString(36).substring(2, 8).toUpperCase();
+      const code = `${base}${random}`;
+      const exists = await Provider.findOne({ 'referral.code': code }).lean().select('_id');
+      if (!exists) return code;
+    }
+    // Fallback: append timestamp fragment to guarantee uniqueness
+    const ts = Date.now().toString(36).toUpperCase().slice(-4);
     const random = Math.random().toString(36).substring(2, 6).toUpperCase();
-    return `${base}${random}`;
+    return `${base}${random}${ts}`;
   }
 
   /**

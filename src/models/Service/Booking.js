@@ -187,6 +187,11 @@ const bookingSchema = new mongoose.Schema({
     sentViaChat: { type: Boolean, default: false },
     viewedAt: Date,
     viewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+  },
+  // Nudge de reseña: seguimiento de recordatorios enviados al cliente
+  reviewNudge: {
+    nudgeSentAt: { type: Date, default: null },
+    nudgeCount: { type: Number, default: 0 }
   }
 }, {
   timestamps: true

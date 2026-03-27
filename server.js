@@ -58,8 +58,12 @@ process.on('unhandledRejection', (err) => {
 });
 
 // Manejar señal de terminación (para producción)
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
   console.log('👋 SIGTERM RECEIVED. Shutting down gracefully');
+  try {
+    const { stopNudgeProcessor } = await import('./src/services/internal/nudgeProcessor.js');
+    stopNudgeProcessor();
+  } catch { /* ignore */ }
   if (server) {
     server.close(() => {
       console.log('💥 Process terminated!');
@@ -111,6 +115,15 @@ async function startServer() {
       console.log('[💳 PLANS] Subscription plans seeded/verified ✅');
     } catch (planErr) {
       console.warn('[💳 PLANS] Could not seed plans:', planErr.message);
+    }
+
+    // 1.6 Start persistent nudge processor (replaces volatile setTimeout nudges)
+    try {
+      const { startNudgeProcessor } = await import('./src/services/internal/nudgeProcessor.js');
+      startNudgeProcessor();
+      console.log('[🔔 NUDGES] Persistent nudge processor started ✅');
+    } catch (nudgeErr) {
+      console.warn('[🔔 NUDGES] Could not start nudge processor:', nudgeErr.message);
     }
 
     // 2. Esperar a que Redis esté listo

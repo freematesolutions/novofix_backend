@@ -192,12 +192,13 @@ describe('findEligibleProviders — Urgency Filtering', () => {
     const eligibleIds = result.eligibleProviders.map(p => p.provider.toString());
     expect(eligibleIds).toContain(expertProvider._id.toString());
 
-    // Free should be in delayedProviders with 24h delay
+    // Free should be in delayedProviders with delay until next 6 PM batch
     const delayed = result.delayedProviders.find(
       p => p.provider.toString() === freeProvider._id.toString()
     );
     expect(delayed).toBeTruthy();
-    expect(delayed.delayHours).toBe(24);
+    expect(delayed.delayHours).toBeGreaterThan(0);
+    expect(delayed.delayHours).toBeLessThanOrEqual(24);
   });
 
   it('should sort eligible providers by score (highest first)', async () => {

@@ -25,7 +25,7 @@ describe('subscriptionService', () => {
     expect(freePlan.features.leadLimit).toBe(1);
   });
 
-  it('applies referral code increments discount months', async () => {
+  it('applies referral code awards 7 days of Expert plan', async () => {
     const p = await Provider.create({
       email: 'p@test.com',
       password: 'Password123!',
@@ -34,9 +34,53 @@ describe('subscriptionService', () => {
       subscription: { plan: 'free', status: 'active' }
     });
 
-    const refId = await subscriptionService.applyReferralCode('REFTEST');
-    expect(refId.toString()).toBe(p._id.toString());
+    const result = await subscriptionService.applyReferralCode('REFTEST', {
+      userId: new mongoose.Types.ObjectId(),
+      role: 'client'
+    });
+    expect(result).not.toBeNull();
+    expect(result.referrerId.toString()).toBe(p._id.toString());
+    expect(result.daysAwarded).toBe(7);
+    expect(result.totalDays).toBe(7);
+
     const updated = await Provider.findById(p._id).lean();
-    expect(updated.referral.discountMonths).toBe(1);
+    expect(updated.referral.earnedDays).toBe(7);
+    expect(updated.referral.bonusActive).toBe(true);
+    expect(updated.referral.referralsCount).toBe(1);
+    expect(updated.referral.referredUsers).toHaveLength(1);
+    expect(updated.subscription.plan).toBe('expert');
+  });
+
+  it('caps referral bonus at 30 days maximum', async () => {
+    const p = await Provider.create({
+      email: 'p2@test.com',
+      password: 'Password123!',
+      providerProfile: { businessName: 'Biz2', services: [], serviceArea: {} },
+      referral: { code: 'REFMAX', earnedDays: 28, bonusActive: true, bonusExpiresAt: new Date(Date.now() + 28 * 86400000) },
+      subscription: { plan: 'expert', status: 'active' }
+    });
+
+    const result = await subscriptionService.applyReferralCode('REFMAX', {
+      userId: new mongoose.Types.ObjectId(),
+      role: 'provider'
+    });
+    expect(result.daysAwarded).toBe(2); // Only 2 more days to reach cap of 30
+    expect(result.totalDays).toBe(30);
+  });
+
+  it('returns null for self-referral', async () => {
+    const p = await Provider.create({
+      email: 'p3@test.com',
+      password: 'Password123!',
+      providerProfile: { businessName: 'Biz3', services: [], serviceArea: {} },
+      referral: { code: 'REFSELF' },
+      subscription: { plan: 'free', status: 'active' }
+    });
+
+    const result = await subscriptionService.applyReferralCode('REFSELF', {
+      userId: p._id,
+      role: 'provider'
+    });
+    expect(result).toBeNull();
   });
 });

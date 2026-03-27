@@ -20,6 +20,12 @@ router.get('/provider/:providerId', anyUser, reviewController.getProviderReviews
 router.use(authenticateJWT);
 router.use(requireAuth);
 
+// Clientes - obtener bookings pendientes de reseña (para nudge banner)
+router.get('/pending', clientOnly, reviewController.getPendingReviews.bind(reviewController));
+
+// Clientes - obtener todas sus reseñas enviadas ("Mis Reseñas")
+router.get('/my-reviews', clientOnly, reviewController.getMyReviews.bind(reviewController));
+
 // Clientes - crear y gestionar reviews
 router.post('/booking/:bookingId', clientOnly, reviewController.createReview.bind(reviewController));
 router.put('/:reviewId/report', clientOrProvider, reviewController.reportReview.bind(reviewController));

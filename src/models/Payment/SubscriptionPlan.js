@@ -31,8 +31,8 @@ const subscriptionPlanSchema = new mongoose.Schema({
       enum: ['scheduled', 'urgent'],
       default: ['scheduled']
     },
-    // Retardo en horas para recibir leads programados (0 = inmediato)
-    scheduledLeadDelayHours: { type: Number, default: 0 },
+    // Hora del lote diario para leads programados (-1 = inmediato, 0-23 = hora del día)
+    scheduledLeadBatchHour: { type: Number, default: -1 },
     // Multiplicador de visibilidad en ranking / buscador
     visibilityMultiplier: { type: Number, required: true, min: 1.0 },
     // Máximo de videos en portafolio (-1 = ilimitado)

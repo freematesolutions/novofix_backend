@@ -227,9 +227,9 @@ const requireActiveSubscription = async (req, res, next) => {
  */
 function getPlanLimits(plan) {
   const limits = {
-    free:   { leadLimit: -1, visibilityMultiplier: 1.0, leadTypes: ['scheduled'], scheduledLeadDelayHours: 24 },
-    expert: { leadLimit: -1, visibilityMultiplier: 1.5, leadTypes: ['scheduled', 'urgent'], scheduledLeadDelayHours: 0 },
-    elite:  { leadLimit: -1, visibilityMultiplier: 2.0, leadTypes: ['scheduled', 'urgent'], scheduledLeadDelayHours: 0 }
+    free:   { leadLimit: -1, visibilityMultiplier: 1.0, leadTypes: ['scheduled'], scheduledLeadBatchHour: 18 },
+    expert: { leadLimit: -1, visibilityMultiplier: 1.5, leadTypes: ['scheduled', 'urgent'], scheduledLeadBatchHour: -1 },
+    elite:  { leadLimit: -1, visibilityMultiplier: 2.0, leadTypes: ['scheduled', 'urgent'], scheduledLeadBatchHour: -1 }
   };
 
   return limits[plan] || limits.free;

@@ -21,7 +21,7 @@ const seed = [
     features: {
       leadLimit: -1,
       leadTypes: ['scheduled'],
-      scheduledLeadDelayHours: 24,
+      scheduledLeadBatchHour: 18,
       visibilityMultiplier: 1.0,
       maxPortfolioVideos: 1,
       verifiedBadge: false,
@@ -34,19 +34,19 @@ const seed = [
     stripePriceId: '',
     isActive: true,
     metadata: {
-      description: 'Ranking básico, portafolio (máx. 1 video), leads programados con retardo 24h',
-      descriptionEn: 'Basic ranking, portfolio (max 1 video), scheduled leads with 24h delay',
+      description: 'Ranking básico, portafolio (máx. 1 video), leads programados (diariamente a las 6 PM)',
+      descriptionEn: 'Basic ranking, portfolio (max 1 video), scheduled leads (daily at 6 PM)',
       order: 1
     }
   },
   {
     name: 'expert',
     displayName: 'Experto',
-    price: { monthly: 9.99, currency: 'USD' },
+    price: { monthly: 4.99, currency: 'USD' },
     features: {
       leadLimit: -1,
       leadTypes: ['scheduled', 'urgent'],
-      scheduledLeadDelayHours: 0,
+      scheduledLeadBatchHour: -1,
       visibilityMultiplier: 1.5,
       maxPortfolioVideos: -1,
       verifiedBadge: true,
@@ -68,11 +68,11 @@ const seed = [
   {
     name: 'elite',
     displayName: 'Élite',
-    price: { monthly: 19.99, currency: 'USD' },
+    price: { monthly: 9.99, currency: 'USD' },
     features: {
       leadLimit: -1,
       leadTypes: ['scheduled', 'urgent'],
-      scheduledLeadDelayHours: 0,
+      scheduledLeadBatchHour: -1,
       visibilityMultiplier: 2.0,
       maxPortfolioVideos: -1,
       verifiedBadge: true,

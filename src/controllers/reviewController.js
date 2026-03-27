@@ -131,6 +131,14 @@ class ReviewController {
       // Recalcular score del proveedor
       await scoringService.calculateProviderScore(booking.provider._id);
 
+      // Verificar milestones de reseñas (primera reseña, 3 reseñas → días Experto gratis)
+      try {
+        const subscriptionService = (await import('../services/internal/subscriptionService.js')).default;
+        await subscriptionService.checkReviewMilestones(booking.provider._id);
+      } catch (milestoneErr) {
+        console.warn('[ReviewController] Milestone check failed:', milestoneErr.message);
+      }
+
       // Notificar al proveedor
   const notificationService = (await import('../services/external/notificationService.js')).default;
   await notificationService.sendProviderNotification({
@@ -142,6 +150,9 @@ class ReviewController {
           clientName: req.user.profile.firstName
         }
       });
+
+      // Programar nudge de respuesta al proveedor (48h después si no responde)
+      this.scheduleResponseNudge(review._id, booking.provider._id);
 
       res.status(201).json({
         success: true,
@@ -898,6 +909,116 @@ class ReviewController {
         success: false,
         message: 'Failed to check client review'
       });
+    }
+  }
+
+  /**
+   * Obtener bookings completados sin reseña del cliente actual.
+   * Usado para mostrar el banner de nudge en el frontend.
+   */
+  async getPendingReviews(req, res) {
+    try {
+      const clientId = req.user._id;
+
+      // Bookings completados de este cliente
+      const completedBookings = await Booking.find({
+        client: clientId,
+        status: 'completed'
+      })
+        .select('_id provider schedule.scheduledDate')
+        .populate('provider', 'providerProfile.businessName providerProfile.avatar profile.firstName')
+        .sort({ updatedAt: -1 })
+        .limit(10)
+        .lean();
+
+      if (!completedBookings.length) {
+        return res.json({ success: true, data: { pendingReviews: [] } });
+      }
+
+      // Filtrar los que ya tienen reseña
+      const bookingIds = completedBookings.map(b => b._id);
+      const existingReviews = await Review.find({ booking: { $in: bookingIds } })
+        .select('booking')
+        .lean();
+      const reviewedBookingIds = new Set(existingReviews.map(r => r.booking.toString()));
+
+      const pendingReviews = completedBookings
+        .filter(b => !reviewedBookingIds.has(b._id.toString()))
+        .map(b => ({
+          bookingId: b._id,
+          providerName: b.provider?.providerProfile?.businessName || b.provider?.profile?.firstName || '',
+          providerAvatar: b.provider?.providerProfile?.avatar || '',
+          scheduledDate: b.schedule?.scheduledDate
+        }));
+
+      res.json({ success: true, data: { pendingReviews } });
+    } catch (error) {
+      console.error('ReviewController - getPendingReviews error:', error);
+      res.status(500).json({ success: false, message: 'Failed to get pending reviews' });
+    }
+  }
+
+  /**
+   * Programar nudge de respuesta al proveedor 48h después de recibir una reseña.
+   * Si el proveedor ya respondió, no se envía.
+   * Persiste en DB — sobrevive reinicios del servidor.
+   */
+  async scheduleResponseNudge(reviewId, providerId) {
+    try {
+      const { scheduleResponseNudge: persistNudge } = await import('../services/internal/nudgeProcessor.js');
+      await persistNudge({ reviewId, providerId });
+    } catch (err) {
+      console.warn('[ReviewController] scheduleResponseNudge error:', err.message);
+    }
+  }
+
+  /**
+   * Obtener todas las reseñas que el cliente actual ha enviado.
+   * Devuelve reseñas con info del proveedor, booking y respuesta.
+   */
+  async getMyReviews(req, res) {
+    try {
+      const clientId = req.user._id;
+      const { page = 1, limit = 20 } = req.query;
+      const skip = (Number(page) - 1) * Number(limit);
+
+      const [reviews, total] = await Promise.all([
+        Review.find({ client: clientId, status: 'active' })
+          .populate('provider', 'providerProfile.businessName providerProfile.avatar profile.firstName')
+          .populate('booking', 'schedule.scheduledDate status')
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(Number(limit))
+          .lean(),
+        Review.countDocuments({ client: clientId, status: 'active' })
+      ]);
+
+      const mapped = reviews.map(r => ({
+        _id: r._id,
+        providerName: r.provider?.providerProfile?.businessName || r.provider?.profile?.firstName || '',
+        providerAvatar: r.provider?.providerProfile?.avatar || '',
+        rating: r.rating?.overall || 0,
+        categories: r.rating?.categories || {},
+        title: r.review?.title || '',
+        comment: r.review?.comment || '',
+        photos: r.review?.photos || [],
+        providerResponse: r.providerResponse?.comment || null,
+        providerRespondedAt: r.providerResponse?.respondedAt || null,
+        scheduledDate: r.booking?.schedule?.scheduledDate,
+        createdAt: r.createdAt,
+        helpfulness: r.helpfulness || { helpful: 0, notHelpful: 0 }
+      }));
+
+      res.json({
+        success: true,
+        data: {
+          reviews: mapped,
+          pagination: { page: Number(page), limit: Number(limit), total, totalPages: Math.ceil(total / Number(limit)) }
+        }
+      });
+    } catch (error) {
+      console.error('ReviewController - getMyReviews error:', error);
+      res.status(500).json({ success: false, message: 'Failed to get my reviews' });
     }
   }
 }

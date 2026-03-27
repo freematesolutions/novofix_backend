@@ -25,15 +25,42 @@ router.get('/plans', async (req, res) => {
 // ─── Current subscription status ───
 router.get('/status', async (req, res) => {
   try {
+    // Check and expire referral bonus if needed
+    await subscriptionService.checkReferralBonusExpiry(req.user._id);
+
     const provider = await Provider.findById(req.user._id).lean();
     const canLead = await subscriptionService.canReceiveLead(provider);
     const plan = await subscriptionService.getPlan(provider.subscription?.plan || 'free');
+
+    // Count active reviews for milestone progress
+    let reviewCount = 0;
+    try {
+      const Review = (await import('../../models/Service/Review.js')).default;
+      reviewCount = await Review.countDocuments({ provider: req.user._id, status: 'active' });
+    } catch { /* non-critical */ }
+
     res.json({
       success: true,
       data: {
         subscription: provider.subscription,
         plan,
-        canReceiveLead: canLead
+        canReceiveLead: canLead,
+        referral: {
+          code: provider.referral?.code || '',
+          earnedDays: provider.referral?.earnedDays || 0,
+          referralsCount: provider.referral?.referralsCount || 0,
+          bonusActive: provider.referral?.bonusActive || false,
+          bonusExpiresAt: provider.referral?.bonusExpiresAt || null,
+          maxDays: subscriptionService.REFERRAL_MAX_DAYS,
+          daysPerSignup: subscriptionService.REFERRAL_DAYS_PER_SIGNUP,
+          programActive: subscriptionService.isReferralProgramActive()
+        },
+        reviewMilestones: {
+          firstReviewAcknowledged: provider.reviewMilestones?.firstReviewAcknowledged || false,
+          threeReviewsRewarded: provider.reviewMilestones?.threeReviewsRewarded || false,
+          reviewCount,
+          daysAvailable: subscriptionService.REVIEW_MILESTONE_DAYS
+        }
       }
     });
   } catch (error) {
@@ -122,20 +149,93 @@ router.post('/reactivate', async (req, res) => {
   }
 });
 
-// ─── Apply referral code ───
+// ─── Apply referral code (provider applies code manually from Plan page) ───
 router.post('/apply-referral', async (req, res) => {
   try {
     const { code } = req.body || {};
     if (!code || typeof code !== 'string') {
       return res.status(400).json({ success: false, message: 'Invalid code' });
     }
-    const refId = await subscriptionService.applyReferralCode(code);
-    if (!refId) return res.status(404).json({ success: false, message: 'Referral code not found' });
-    await Provider.findByIdAndUpdate(req.user._id, { $set: { 'referral.referredBy': refId } });
-    res.json({ success: true, message: 'Código aplicado' });
+
+    // Check if referral program is still active
+    if (!subscriptionService.isReferralProgramActive()) {
+      return res.status(400).json({ success: false, message: 'Referral program has ended' });
+    }
+
+    const result = await subscriptionService.applyReferralCode(code, {
+      userId: req.user._id,
+      role: 'provider'
+    });
+    if (!result) return res.status(404).json({ success: false, message: 'Referral code not found' });
+
+    await Provider.findByIdAndUpdate(req.user._id, { $set: { 'referral.referredBy': result.referrerId } });
+
+    // Notify the referrer about their bonus
+    try {
+      const notificationService = (await import('../../services/external/notificationService.js')).default;
+      const currentProvider = await Provider.findById(req.user._id).lean();
+      await notificationService.sendProviderNotification({
+        providerId: result.referrerId,
+        type: 'REFERRAL_BONUS',
+        data: {
+          daysAwarded: result.daysAwarded,
+          totalDays: result.totalDays,
+          bonusExpiresAt: result.bonusExpiresAt,
+          newUserName: currentProvider?.providerProfile?.businessName || 'Un profesional',
+          newUserRole: 'provider'
+        }
+      });
+    } catch (notifErr) {
+      console.warn('Referral bonus notification failed:', notifErr?.message);
+    }
+
+    res.json({
+      success: true,
+      message: 'Referral code applied successfully',
+      data: {
+        daysAwarded: result.daysAwarded,
+        totalDays: result.totalDays,
+        bonusExpiresAt: result.bonusExpiresAt
+      }
+    });
   } catch (error) {
     console.error('POST /provider/subscription/apply-referral error:', error);
     res.status(500).json({ success: false, message: 'Failed to apply referral code' });
+  }
+});
+
+// ─── Get referral program info (public for the provider) ───
+router.get('/referral-info', async (req, res) => {
+  try {
+    const provider = await Provider.findById(req.user._id).lean();
+    if (!provider) return res.status(404).json({ success: false, message: 'Provider not found' });
+
+    // Check and expire bonus if needed
+    await subscriptionService.checkReferralBonusExpiry(req.user._id);
+    const fresh = await Provider.findById(req.user._id).lean();
+
+    res.json({
+      success: true,
+      data: {
+        code: fresh.referral?.code || '',
+        earnedDays: fresh.referral?.earnedDays || 0,
+        referralsCount: fresh.referral?.referralsCount || 0,
+        bonusActive: fresh.referral?.bonusActive || false,
+        bonusExpiresAt: fresh.referral?.bonusExpiresAt || null,
+        referredUsers: (fresh.referral?.referredUsers || []).map(u => ({
+          userRole: u.userRole,
+          daysAwarded: u.daysAwarded,
+          registeredAt: u.registeredAt
+        })),
+        maxDays: subscriptionService.REFERRAL_MAX_DAYS,
+        daysPerSignup: subscriptionService.REFERRAL_DAYS_PER_SIGNUP,
+        programActive: subscriptionService.isReferralProgramActive(),
+        programEndDate: process.env.REFERRAL_PROGRAM_END_DATE || null
+      }
+    });
+  } catch (error) {
+    console.error('GET /provider/subscription/referral-info error:', error);
+    res.status(500).json({ success: false, message: 'Failed to load referral info' });
   }
 });
 

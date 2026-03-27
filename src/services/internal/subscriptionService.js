@@ -12,9 +12,9 @@ function getPlansSeed() {
     displayName: 'Básico',
     price: { monthly: 0, currency: 'USD' },
     features: {
-      leadLimit: -1,            // leads ilimitados (Programados con retardo)
+      leadLimit: -1,            // leads ilimitados (Programados en lote)
       leadTypes: ['scheduled'],  // solo leads programados
-      scheduledLeadDelayHours: 24, // retardo de 24h después del primer contacto
+      scheduledLeadBatchHour: 18, // leads entregados diariamente a las 6 PM
       visibilityMultiplier: 1.0,
       maxPortfolioVideos: 1,
       verifiedBadge: false,
@@ -27,19 +27,19 @@ function getPlansSeed() {
     stripePriceId: '',           // no Stripe price for free
     isActive: true,
     metadata: {
-      description: 'Ranking básico, portafolio (máx. 1 video), leads programados con retardo 24h',
-      descriptionEn: 'Basic ranking, portfolio (max 1 video), scheduled leads with 24h delay',
+      description: 'Ranking básico, portafolio (máx. 1 video), leads programados (diariamente a las 6 PM)',
+      descriptionEn: 'Basic ranking, portfolio (max 1 video), scheduled leads (daily at 6 PM)',
       order: 1
     }
   },
   {
     name: 'expert',
     displayName: 'Experto',
-    price: { monthly: 9.99, currency: 'USD' },
+    price: { monthly: 4.99, currency: 'USD' },
     features: {
       leadLimit: -1,                        // leads ilimitados
       leadTypes: ['scheduled', 'urgent'],    // programados + urgentes
-      scheduledLeadDelayHours: 0,            // acceso inmediato
+      scheduledLeadBatchHour: -1,            // acceso inmediato (sin lote)
       visibilityMultiplier: 1.5,
       maxPortfolioVideos: -1,                // ilimitado
       verifiedBadge: true,
@@ -61,11 +61,11 @@ function getPlansSeed() {
   {
     name: 'elite',
     displayName: 'Élite',
-    price: { monthly: 19.99, currency: 'USD' },
+    price: { monthly: 9.99, currency: 'USD' },
     features: {
       leadLimit: -1,
       leadTypes: ['scheduled', 'urgent'],
-      scheduledLeadDelayHours: 0,
+      scheduledLeadBatchHour: -1,            // acceso inmediato (sin lote)
       visibilityMultiplier: 2.0,             // máxima visibilidad / top resultados
       maxPortfolioVideos: -1,
       verifiedBadge: true,
@@ -95,6 +95,20 @@ function startOfNextPeriod(from = new Date()) {
   return { start, end };
 }
 
+/**
+ * Calculate hours remaining until the next occurrence of a given hour (0-23).
+ * E.g. batchHour=18 → hours until next 6 PM.
+ */
+function hoursUntilNextBatchHour(batchHour = 18) {
+  const now = new Date();
+  const target = new Date(now);
+  target.setHours(batchHour, 0, 0, 0);
+  if (now >= target) {
+    target.setDate(target.getDate() + 1);
+  }
+  return (target - now) / (1000 * 60 * 60);
+}
+
 // ─── Public API ───
 
 async function ensurePlansSeeded() {
@@ -105,13 +119,12 @@ async function ensurePlansSeeded() {
   if (toCreate.length) {
     await SubscriptionPlan.insertMany(toCreate);
   }
-  // Update stripePriceId from env if they changed
+  // Sync existing plans: price, features, metadata, and stripePriceId
   for (const seed of plansSeed) {
-    if (seed.stripePriceId && have.has(seed.name)) {
-      await SubscriptionPlan.updateOne(
-        { name: seed.name },
-        { $set: { stripePriceId: seed.stripePriceId } }
-      );
+    if (have.has(seed.name)) {
+      const update = { price: seed.price, features: seed.features, metadata: seed.metadata };
+      if (seed.stripePriceId) update.stripePriceId = seed.stripePriceId;
+      await SubscriptionPlan.updateOne({ name: seed.name }, { $set: update });
     }
   }
 }
@@ -447,11 +460,12 @@ async function canReceiveLeadByUrgency(providerOrId, urgency = 'scheduled') {
     return { allowed: true, delayHours: 0 };
   }
 
-  // Scheduled leads: all plans, but free has delay
-  return {
-    allowed: true,
-    delayHours: plan.features.scheduledLeadDelayHours || 0
-  };
+  // Scheduled leads: all plans, but free-plan gets batched at a fixed hour (e.g. 6 PM)
+  const batchHour = plan.features.scheduledLeadBatchHour;
+  if (batchHour != null && batchHour >= 0) {
+    return { allowed: true, delayHours: hoursUntilNextBatchHour(batchHour) };
+  }
+  return { allowed: true, delayHours: 0 };
 }
 
 async function incrementLeadUsage(providerId) {
@@ -466,18 +480,236 @@ async function incrementLeadUsage(providerId) {
 
 // ─── Referral helpers ───
 
-async function applyReferralCode(referralCode) {
-  const referrer = await Provider.findOne({ 'referral.code': referralCode }).lean();
+const REFERRAL_DAYS_PER_SIGNUP = 7;   // 7 días de Plan Experto por cada referido
+const REFERRAL_MAX_DAYS = 30;          // Máximo acumulable: 1 mes (30 días)
+
+/**
+ * Check if the referral promotion is still active.
+ * Controlled by REFERRAL_PROGRAM_END_DATE env variable.
+ */
+function isReferralProgramActive() {
+  const endDate = process.env.REFERRAL_PROGRAM_END_DATE;
+  if (!endDate) return true; // If no end date set, program is always active
+  const end = new Date(endDate);
+  return !isNaN(end.getTime()) && new Date() < end;
+}
+
+/**
+ * Apply a referral code when a new user (client or provider) registers.
+ * Awards 7 days of Expert plan to the referrer, capped at 30 days total.
+ * 
+ * @param {string} referralCode - The referral code used
+ * @param {object} newUser - { userId, role } of the user who registered
+ * @returns {{ referrerId, daysAwarded, totalDays, bonusExpiresAt } | null}
+ */
+async function applyReferralCode(referralCode, newUser = {}) {
+  // Check if referral program is still active
+  if (!isReferralProgramActive()) {
+    return null;
+  }
+
+  const referrer = await Provider.findOne({ 'referral.code': referralCode });
   if (!referrer) return null;
-  const nextMonths = Math.min((referrer.referral?.discountMonths || 0) + 1, 3);
+
+  // Don't allow self-referral
+  if (newUser.userId && String(referrer._id) === String(newUser.userId)) {
+    return null;
+  }
+
+  // Calculate new earned days (cap at 30)
+  const currentEarned = referrer.referral?.earnedDays || 0;
+  if (currentEarned >= REFERRAL_MAX_DAYS) {
+    // Already at maximum — still track the referral but award 0 days
+    await Provider.updateOne(
+      { _id: referrer._id },
+      {
+        $inc: { 'referral.referralsCount': 1 },
+        $push: {
+          'referral.referredUsers': {
+            userId: newUser.userId || null,
+            userRole: newUser.role || 'provider',
+            daysAwarded: 0,
+            registeredAt: new Date()
+          }
+        }
+      }
+    );
+    return { referrerId: referrer._id, daysAwarded: 0, totalDays: REFERRAL_MAX_DAYS, bonusExpiresAt: referrer.referral?.bonusExpiresAt };
+  }
+
+  const daysToAdd = Math.min(REFERRAL_DAYS_PER_SIGNUP, REFERRAL_MAX_DAYS - currentEarned);
+  const newTotalDays = currentEarned + daysToAdd;
+
+  // Calculate bonus expiry: extend from current expiry or start from now
+  const now = new Date();
+  let bonusExpiresAt;
+  if (referrer.referral?.bonusActive && referrer.referral?.bonusExpiresAt && new Date(referrer.referral.bonusExpiresAt) > now) {
+    // Extend existing bonus
+    bonusExpiresAt = new Date(referrer.referral.bonusExpiresAt);
+    bonusExpiresAt.setDate(bonusExpiresAt.getDate() + daysToAdd);
+  } else {
+    // Start fresh bonus
+    bonusExpiresAt = new Date(now);
+    bonusExpiresAt.setDate(bonusExpiresAt.getDate() + newTotalDays);
+  }
+
+  // Activate Expert plan bonus for the referrer
+  const updateFields = {
+    'referral.earnedDays': newTotalDays,
+    'referral.bonusExpiresAt': bonusExpiresAt,
+    'referral.bonusActive': true
+  };
+
+  // If the provider is currently on 'free' plan (no paid Stripe subscription),
+  // upgrade them to 'expert' temporarily via referral bonus
+  const hasPaidSubscription = referrer.subscription?.stripeSubscriptionId;
+  if (!hasPaidSubscription && (referrer.subscription?.plan === 'free' || !referrer.subscription?.plan)) {
+    updateFields['subscription.plan'] = 'expert';
+    updateFields['subscription.status'] = 'active';
+    updateFields['subscription.currentPeriodStart'] = now;
+    updateFields['subscription.currentPeriodEnd'] = bonusExpiresAt;
+  }
+
   await Provider.updateOne(
     { _id: referrer._id },
     {
+      $set: updateFields,
       $inc: { 'referral.referralsCount': 1 },
-      $set: { 'referral.discountMonths': nextMonths }
+      $push: {
+        'referral.referredUsers': {
+          userId: newUser.userId || null,
+          userRole: newUser.role || 'provider',
+          daysAwarded: daysToAdd,
+          registeredAt: now
+        }
+      }
     }
   );
-  return referrer._id;
+
+  return {
+    referrerId: referrer._id,
+    daysAwarded: daysToAdd,
+    totalDays: newTotalDays,
+    bonusExpiresAt
+  };
+}
+
+// ─── Review Milestones ───
+// Milestone 1: First review received → motivational notification
+// Milestone 2: 3 reviews received → 3 days Expert Plan free
+const REVIEW_MILESTONE_DAYS = 3;
+
+/**
+ * Check review milestones for a provider after receiving a new review.
+ * Returns { milestone, daysAwarded } or null if no new milestone.
+ */
+async function checkReviewMilestones(providerId) {
+  const provider = await Provider.findById(providerId);
+  if (!provider) return null;
+
+  const Review = (await import('../../models/Service/Review.js')).default;
+  const reviewCount = await Review.countDocuments({ provider: providerId, status: 'active' });
+
+  // Milestone 1: First review (motivational — no days awarded)
+  if (reviewCount >= 1 && !provider.reviewMilestones?.firstReviewAcknowledged) {
+    provider.reviewMilestones = provider.reviewMilestones || {};
+    provider.reviewMilestones.firstReviewAcknowledged = true;
+    await provider.save();
+
+    // Send motivational notification: "You got your first review! Get 2 more to earn 3 days Expert."
+    try {
+      await notificationService.sendProviderNotification({
+        providerId,
+        type: 'REVIEW_MILESTONE_FIRST',
+        data: { reviewCount, daysToEarn: REVIEW_MILESTONE_DAYS, reviewsNeeded: 3 - reviewCount }
+      });
+    } catch (e) { console.warn('[Milestones] notification failed:', e.message); }
+
+    return { milestone: 'first_review', daysAwarded: 0 };
+  }
+
+  // Milestone 2: 3 reviews → award REVIEW_MILESTONE_DAYS of Expert
+  if (reviewCount >= 3 && !provider.reviewMilestones?.threeReviewsRewarded) {
+    provider.reviewMilestones = provider.reviewMilestones || {};
+    provider.reviewMilestones.threeReviewsRewarded = true;
+
+    // Award days — same logic as referral bonus
+    const now = new Date();
+    const currentExpiry = provider.referral?.bonusExpiresAt ? new Date(provider.referral.bonusExpiresAt) : null;
+    const baseDate = (currentExpiry && currentExpiry > now) ? currentExpiry : now;
+    const newExpiry = new Date(baseDate);
+    newExpiry.setDate(newExpiry.getDate() + REVIEW_MILESTONE_DAYS);
+
+    provider.referral = provider.referral || {};
+    provider.referral.earnedDays = (provider.referral.earnedDays || 0) + REVIEW_MILESTONE_DAYS;
+    provider.referral.bonusExpiresAt = newExpiry;
+    provider.referral.bonusActive = true;
+
+    // Upgrade to expert if on free plan (set proper period bounds)
+    const hasPaidSubscription = provider.subscription?.stripeSubscriptionId;
+    if (!hasPaidSubscription && (!provider.subscription?.plan || provider.subscription.plan === 'free')) {
+      provider.subscription = provider.subscription || {};
+      provider.subscription.plan = 'expert';
+      provider.subscription.status = 'active';
+      provider.subscription.currentPeriodStart = now;
+      provider.subscription.currentPeriodEnd = newExpiry;
+    }
+
+    await provider.save();
+
+    // Send reward notification
+    try {
+      await notificationService.sendProviderNotification({
+        providerId,
+        type: 'REVIEW_MILESTONE_THREE',
+        data: { reviewCount, daysAwarded: REVIEW_MILESTONE_DAYS }
+      });
+    } catch (e) { console.warn('[Milestones] notification failed:', e.message); }
+
+    return { milestone: 'three_reviews', daysAwarded: REVIEW_MILESTONE_DAYS };
+  }
+
+  return null;
+}
+
+/**
+ * Check and expire referral bonuses that have passed their expiry date.
+ * Called periodically or on subscription status check.
+ */
+async function checkReferralBonusExpiry(providerId) {
+  const provider = await Provider.findById(providerId).lean();
+  if (!provider?.referral?.bonusActive) return false;
+
+  const now = new Date();
+  const expiresAt = provider.referral?.bonusExpiresAt ? new Date(provider.referral.bonusExpiresAt) : null;
+
+  if (!expiresAt || expiresAt > now) return false;
+
+  // Bonus expired — downgrade to free if no paid Stripe subscription
+  const hasPaidSubscription = provider.subscription?.stripeSubscriptionId;
+  const updates = {
+    'referral.bonusActive': false
+  };
+
+  if (!hasPaidSubscription) {
+    updates['subscription.plan'] = 'free';
+    updates['subscription.status'] = 'active';
+  }
+
+  await Provider.updateOne({ _id: providerId }, { $set: updates });
+
+  // Notify the provider that their referral bonus has expired
+  try {
+    await notificationService.sendProviderNotification({
+      providerId,
+      type: 'REFERRAL_BONUS_EXPIRED',
+      data: {}
+    });
+  } catch (e) {
+    console.warn('[Subscription] REFERRAL_BONUS_EXPIRED notification failed:', e.message);
+  }
+
+  return true; // bonus was expired
 }
 
 export default {
@@ -494,5 +726,11 @@ export default {
   canReceiveLead,
   canReceiveLeadByUrgency,
   incrementLeadUsage,
-  applyReferralCode
+  applyReferralCode,
+  checkReferralBonusExpiry,
+  isReferralProgramActive,
+  checkReviewMilestones,
+  REFERRAL_DAYS_PER_SIGNUP,
+  REFERRAL_MAX_DAYS,
+  REVIEW_MILESTONE_DAYS
 };

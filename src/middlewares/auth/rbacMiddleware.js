@@ -226,8 +226,11 @@ const requireActiveSubscription = async (req, res, next) => {
  * Helper para obtener límites del plan
  */
 function getPlanLimits(plan) {
+  const freePromo = process.env.FREE_PLAN_PROMO === 'true';
   const limits = {
-    free:   { leadLimit: -1, visibilityMultiplier: 1.0, leadTypes: ['scheduled'], scheduledLeadBatchHour: 18 },
+    free:   freePromo
+      ? { leadLimit: -1, visibilityMultiplier: 1.5, leadTypes: ['scheduled', 'urgent'], scheduledLeadBatchHour: -1 }
+      : { leadLimit: -1, visibilityMultiplier: 1.0, leadTypes: ['scheduled'], scheduledLeadBatchHour: 18 },
     expert: { leadLimit: -1, visibilityMultiplier: 1.5, leadTypes: ['scheduled', 'urgent'], scheduledLeadBatchHour: -1 },
     elite:  { leadLimit: -1, visibilityMultiplier: 2.0, leadTypes: ['scheduled', 'urgent'], scheduledLeadBatchHour: -1 }
   };
@@ -250,12 +253,12 @@ const checkLeadLimit = async (req, res, next) => {
 
     const provider = await Provider.findById(req.user._id);
     const plan = provider.subscription.plan;
-
-    if (plan === 'elite' || plan === 'expert') {
-      return next(); // Paid plans have unlimited leads
-    }
-
     const leadLimit = getPlanLimits(plan).leadLimit;
+
+    // Unlimited leads (-1) → skip counting
+    if (leadLimit < 0) {
+      return next();
+    }
     
     // Contar propuestas enviadas en el mes actual
     const startOfMonth = new Date();

@@ -145,6 +145,7 @@ async function startServer() {
       console.log(`📧 Email: ${process.env.EMAIL_MODE || 'auto'} (GMAIL: ${process.env.GMAIL_USER ? '✅' : '❌'})`);
       console.log(`☁️ Cloudinary: ${process.env.CLOUDINARY_CLOUD_NAME ? 'Ready' : 'Not configured'}`);
       console.log(`💳 Stripe: ${process.env.STRIPE_SECRET_KEY ? 'Key ✅' : 'Key ❌'} | Webhook: ${process.env.STRIPE_WEBHOOK_SECRET && !process.env.STRIPE_WEBHOOK_SECRET.includes('REPLACE') ? 'Secret ✅' : '⚠️  Placeholder'} | Expert Price: ${process.env.STRIPE_PRICE_EXPERT ? '✅' : '❌'} | Elite Price: ${process.env.STRIPE_PRICE_ELITE ? '✅' : '❌'}`);
+      console.log(`🎁 Free Plan Promo: ${process.env.FREE_PLAN_PROMO === 'true' ? '🟢 ON (sin restricciones)' : '🔴 OFF (restricciones activas)'}`);
       console.log(`🧠 Redis: Connected`);
       console.log('='.repeat(50));
       console.log(`📡 API running on: http://localhost:${PORT}/api`);

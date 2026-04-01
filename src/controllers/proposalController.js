@@ -5,6 +5,7 @@ import Provider from '../models/User/Provider.js';
 import notificationService from '../services/external/notificationService.js';
 import translationService from '../services/external/translationService.js';
 import scoringService from '../services/internal/scoringService.js';
+import subscriptionService from '../services/internal/subscriptionService.js';
 import bookingController from './bookingController.js';
 import emitter from '../websocket/services/emitterService.js';
 
@@ -67,13 +68,9 @@ class ProposalController {
       const commissionRateDecimal = this.deriveCommissionRate(provider);
       const commissionRatePercent = Math.round(commissionRateDecimal * 100);
 
-      // Lead limit logic (mirrors rbacMiddleware but non-blocking)
-      const limits = {
-        free: { leadLimit: 1 },
-        basic: { leadLimit: 5 },
-        pro: { leadLimit: -1 }
-      };
-      const leadLimit = (limits[plan] || limits.free).leadLimit;
+      // Lead limit from actual plan data via subscriptionService
+      const planDoc = await subscriptionService.getPlan(plan);
+      const leadLimit = planDoc?.features?.leadLimit ?? 1;
       const startOfMonth = new Date();
       startOfMonth.setDate(1); startOfMonth.setHours(0,0,0,0);
       const proposalsThisMonth = await Proposal.countDocuments({

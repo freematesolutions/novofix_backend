@@ -5,32 +5,58 @@ import stripeService from '../external/payment/stripeService.js';
 import notificationService from '../external/notificationService.js';
 
 // ─── Plan seed data aligned to business requirements ───
+// FREE_PLAN_PROMO=true → free plan gets full access (no restrictions) for launch.
+// Set FREE_PLAN_PROMO=false or remove it to restore real restrictions.
+const FREE_PROMO = process.env.FREE_PLAN_PROMO === 'true';
+
 function getPlansSeed() {
   return [
   {
     name: 'free',
     displayName: 'Básico',
     price: { monthly: 0, currency: 'USD' },
-    features: {
-      leadLimit: -1,            // leads ilimitados (Programados en lote)
-      leadTypes: ['scheduled'],  // solo leads programados
-      scheduledLeadBatchHour: 18, // leads entregados diariamente a las 6 PM
-      visibilityMultiplier: 1.0,
-      maxPortfolioVideos: 1,
-      verifiedBadge: false,
-      performanceReports: false,
-      profileViewsVisible: false,
-      vipSupport: false,
-      urgentLeadPriority: 0,
-      benefits: ['multiple_categories']
-    },
-    stripePriceId: '',           // no Stripe price for free
+    features: FREE_PROMO
+      ? {
+          // ── PROMO MODE: sin restricciones, flujo completo ──
+          leadLimit: -1,
+          leadTypes: ['scheduled', 'urgent'],
+          scheduledLeadBatchHour: -1,        // inmediato, sin lote
+          visibilityMultiplier: 1.5,
+          maxPortfolioVideos: -1,             // ilimitado
+          verifiedBadge: false,
+          performanceReports: false,
+          profileViewsVisible: true,
+          vipSupport: false,
+          urgentLeadPriority: 1,
+          benefits: ['multiple_categories']
+        }
+      : {
+          // ── MODO REAL: restricciones del plan básico ──
+          leadLimit: -1,
+          leadTypes: ['scheduled'],
+          scheduledLeadBatchHour: 18,
+          visibilityMultiplier: 1.0,
+          maxPortfolioVideos: 1,
+          verifiedBadge: false,
+          performanceReports: false,
+          profileViewsVisible: false,
+          vipSupport: false,
+          urgentLeadPriority: 0,
+          benefits: ['multiple_categories']
+        },
+    stripePriceId: '',
     isActive: true,
-    metadata: {
-      description: 'Ranking básico, portafolio (máx. 1 video), leads programados (diariamente a las 6 PM)',
-      descriptionEn: 'Basic ranking, portfolio (max 1 video), scheduled leads (daily at 6 PM)',
-      order: 1
-    }
+    metadata: FREE_PROMO
+      ? {
+          description: '¡Lanzamiento! Acceso completo: leads inmediatos, urgentes y programados',
+          descriptionEn: 'Launch promo! Full access: instant urgent & scheduled leads',
+          order: 1
+        }
+      : {
+          description: 'Ranking básico, portafolio (máx. 1 video), leads programados (diariamente a las 6 PM)',
+          descriptionEn: 'Basic ranking, portfolio (max 1 video), scheduled leads (daily at 6 PM)',
+          order: 1
+        }
   },
   {
     name: 'expert',

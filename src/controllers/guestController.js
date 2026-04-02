@@ -1262,6 +1262,74 @@ class GuestController {
       });
     }
   }
+
+  /**
+   * Obtener pares Antes/Después de bookings completados — endpoint público
+   * Devuelve pares agrupados por booking con info del proveedor
+   */
+  async getBeforeAfterPairs(req, res) {
+    try {
+      const Booking = (await import('../models/Service/Booking.js')).default;
+      const limit = Math.min(parseInt(req.query.limit) || 20, 50);
+
+      const bookings = await Booking.find({
+        status: 'completed',
+        'serviceEvidence.before.0': { $exists: true },
+        'serviceEvidence.after.0': { $exists: true }
+      })
+      .sort({ completedAt: -1, createdAt: -1 })
+      .limit(limit)
+      .select({
+        'serviceEvidence.before': 1,
+        'serviceEvidence.after': 1,
+        'provider': 1,
+        'serviceRequest': 1,
+        'createdAt': 1,
+        'completedAt': 1
+      })
+      .populate('provider', 'profile.firstName profile.avatar providerProfile.businessName providerProfile.services providerProfile.rating subscription.plan')
+      .populate('serviceRequest', 'category description')
+      .lean();
+
+      const pairs = bookings
+        .filter(b => b.provider && b.serviceEvidence?.before?.length > 0 && b.serviceEvidence?.after?.length > 0)
+        .map(booking => {
+          const provider = booking.provider;
+          const beforeImg = booking.serviceEvidence.before.find(e => e.url && !e.url.includes('/video/')) || booking.serviceEvidence.before[0];
+          const afterImg = booking.serviceEvidence.after.find(e => e.url && !e.url.includes('/video/')) || booking.serviceEvidence.after[0];
+
+          if (!beforeImg?.url || !afterImg?.url) return null;
+
+          return {
+            id: booking._id,
+            before: { url: beforeImg.url, description: beforeImg.description || null },
+            after: { url: afterImg.url, description: afterImg.description || null },
+            category: booking.serviceRequest?.category || provider.providerProfile?.services?.[0]?.category || 'general',
+            description: booking.serviceRequest?.description || null,
+            providerName: provider.providerProfile?.businessName || provider.profile?.firstName || 'Profesional',
+            providerAvatar: provider.profile?.avatar || null,
+            providerId: provider._id,
+            providerPlan: provider.subscription?.plan || 'free',
+            rating: provider.providerProfile?.rating?.average || 0,
+            completedAt: booking.completedAt || booking.createdAt
+          };
+        })
+        .filter(Boolean);
+
+      console.log(`📸 Returning ${pairs.length} before/after pairs from ${bookings.length} completed bookings`);
+
+      res.json({
+        success: true,
+        data: { pairs, total: pairs.length }
+      });
+    } catch (error) {
+      console.error('GuestController - getBeforeAfterPairs error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to get before/after pairs'
+      });
+    }
+  }
 }
 
 const guestController = new GuestController();

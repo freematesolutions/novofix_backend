@@ -13,6 +13,7 @@ router.get('/providers/suggestions', guestController.searchSuggestions);
 router.get('/providers/featured', guestController.getFeaturedProviders);
 router.get('/providers/:providerId', guestController.getProviderById);
 router.get('/testimonials/featured', guestController.getFeaturedTestimonials);
+router.get('/before-after', guestController.getBeforeAfterPairs);
 router.get('/reels', guestController.getReels);
 
 // Todas las rutas siguientes requieren sesión

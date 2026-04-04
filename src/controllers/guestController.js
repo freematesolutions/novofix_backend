@@ -1295,15 +1295,33 @@ class GuestController {
         .filter(b => b.provider && b.serviceEvidence?.before?.length > 0 && b.serviceEvidence?.after?.length > 0)
         .map(booking => {
           const provider = booking.provider;
-          const beforeImg = booking.serviceEvidence.before.find(e => e.url && !e.url.includes('/video/')) || booking.serviceEvidence.before[0];
-          const afterImg = booking.serviceEvidence.after.find(e => e.url && !e.url.includes('/video/')) || booking.serviceEvidence.after[0];
+          
+          // Filter images only (exclude videos) for the gallery
+          const beforeImages = (booking.serviceEvidence.before || [])
+            .filter(e => e.url && !e.url.includes('/video/'))
+            .map(e => ({ url: e.url, description: e.description || null }));
+          const afterImages = (booking.serviceEvidence.after || [])
+            .filter(e => e.url && !e.url.includes('/video/'))
+            .map(e => ({ url: e.url, description: e.description || null }));
 
-          if (!beforeImg?.url || !afterImg?.url) return null;
+          // Fallback: if no images found after filtering, use first item anyway
+          if (beforeImages.length === 0 && booking.serviceEvidence.before[0]?.url) {
+            beforeImages.push({ url: booking.serviceEvidence.before[0].url, description: booking.serviceEvidence.before[0].description || null });
+          }
+          if (afterImages.length === 0 && booking.serviceEvidence.after[0]?.url) {
+            afterImages.push({ url: booking.serviceEvidence.after[0].url, description: booking.serviceEvidence.after[0].description || null });
+          }
+
+          if (beforeImages.length === 0 || afterImages.length === 0) return null;
 
           return {
             id: booking._id,
-            before: { url: beforeImg.url, description: beforeImg.description || null },
-            after: { url: afterImg.url, description: afterImg.description || null },
+            // Legacy single pair (first image each) for backward compatibility
+            before: beforeImages[0],
+            after: afterImages[0],
+            // Full arrays for multi-image support
+            beforeImages,
+            afterImages,
             category: booking.serviceRequest?.category || provider.providerProfile?.services?.[0]?.category || 'general',
             description: booking.serviceRequest?.description || null,
             providerName: provider.providerProfile?.businessName || provider.profile?.firstName || 'Profesional',

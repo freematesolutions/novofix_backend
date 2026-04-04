@@ -260,7 +260,15 @@ class BookingController {
   async uploadServiceEvidence(req, res) {
     try {
       const { id } = req.params;
-      const { type, urls, descriptions } = req.body; // type: 'before', 'during', 'after'
+      const { type, urls, descriptions } = req.body; // type: 'before' or 'after'
+
+      // Validate evidence type (only before and after are allowed)
+      if (!['before', 'after'].includes(type)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid evidence type. Only "before" and "after" are allowed.'
+        });
+      }
 
       const booking = await Booking.findOne({
         _id: id,

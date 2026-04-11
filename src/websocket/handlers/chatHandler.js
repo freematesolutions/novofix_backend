@@ -237,7 +237,11 @@ export class ChatHandler {
         status: 'sent',
         content,
         type,
-        sender: socket.userData,
+        sender: {
+          ...socket.userData,
+          _id: String(socket.userData._id || socket.userData.id),
+          id: String(socket.userData._id || socket.userData.id)
+        },
         senderModel,
         replyTo: validReplyTo
       });

@@ -57,6 +57,7 @@ class ChatController {
           serviceRequest: proposal.serviceRequest._id,
           chatType: 'proposal_negotiation',
           status: 'active',
+          providerAccepted: 'accepted',
           metadata: {
             createdAt: new Date(),
             lastActivity: new Date()
@@ -165,6 +166,7 @@ class ChatController {
           serviceRequest: requestId,
           chatType: 'info_request',
           status: 'active',
+          providerAccepted: 'accepted', // info_request es iniciado por el proveedor, auto-aceptado
           metadata: {
             createdAt: new Date(),
             lastActivity: new Date()
@@ -252,6 +254,117 @@ class ChatController {
   }
 
   /**
+   * Crear o obtener chat de consulta directa (cliente → proveedor)
+   * Permite al cliente comunicarse con un profesional antes de solicitar estimado
+   */
+  async createOrGetInquiryChat(req, res) {
+    try {
+      const { providerId } = req.params;
+      const clientId = req.user._id;
+
+      // Verificar que el usuario sea un cliente
+      const userRoles = Array.isArray(req.user?.roles) ? req.user.roles : [req.user?.role];
+      if (!userRoles.includes('client')) {
+        return res.status(403).json({
+          success: false,
+          message: 'Only clients can start inquiry chats'
+        });
+      }
+
+      // Verificar que el proveedor exista
+      const provider = await Provider.findById(providerId).select('profile providerProfile');
+      if (!provider) {
+        return res.status(404).json({
+          success: false,
+          message: 'Provider not found'
+        });
+      }
+
+      // Evitar que el usuario chatee consigo mismo
+      if (clientId.toString() === providerId.toString()) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cannot start a chat with yourself'
+        });
+      }
+
+      // Buscar chat de consulta existente entre este cliente y proveedor
+      let chat = await Chat.findOne({
+        'participants.client': clientId,
+        'participants.provider': providerId,
+        chatType: 'inquiry'
+      }).populate('participants.client', 'profile providerProfile')
+        .populate('participants.provider', 'profile providerProfile')
+        .populate('lastMessage');
+
+      if (!chat) {
+        // Crear nuevo chat de consulta
+        chat = new Chat({
+          participants: {
+            client: clientId,
+            provider: providerId
+          },
+          chatType: 'inquiry',
+          status: 'active',
+          providerAccepted: 'pending',
+          metadata: {
+            createdAt: new Date(),
+            lastActivity: new Date()
+          }
+        });
+
+        await chat.save();
+
+        // Crear mensaje de sistema inicial
+        const clientName = req.user.profile?.firstName || 'Un cliente';
+        const providerName = provider.providerProfile?.businessName ||
+          `${provider.profile?.firstName || ''} ${provider.profile?.lastName || ''}`.trim() ||
+          'el profesional';
+
+        await this.createSystemMessage(
+          chat._id,
+          `💬 ${clientName} ha iniciado una consulta con ${providerName}.`,
+          {
+            key: 'chat.system.inquiryStarted',
+            params: { clientName, providerName }
+          }
+        );
+
+        // Re-populate después de guardar
+        chat = await Chat.findById(chat._id)
+          .populate('participants.client', 'profile providerProfile')
+          .populate('participants.provider', 'profile providerProfile')
+          .populate('lastMessage');
+      }
+
+      // Obtener todos los chats entre este cliente y proveedor
+      // para que el frontend pueda unirse a todas las salas WebSocket
+      // y recibir mensajes del proveedor sin importar desde qué chat responda
+      const allPairChats = await Chat.find({
+        'participants.client': clientId,
+        'participants.provider': providerId
+      }).select('_id chatType status').lean();
+
+      const relatedChats = allPairChats.map(c => ({
+        _id: String(c._id),
+        chatType: c.chatType,
+        status: c.status
+      }));
+
+      res.json({
+        success: true,
+        data: { chat, relatedChats }
+      });
+    } catch (error) {
+      console.error('ChatController - createOrGetInquiryChat error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to create or get inquiry chat'
+      });
+    }
+  }
+
+  /**
    * Crear chat para una reserva
    */
   async createBookingChat(booking) {
@@ -273,7 +386,8 @@ class ChatController {
         },
         booking: booking._id,
         chatType: 'booking',
-        status: 'active'
+        status: 'active',
+        providerAccepted: 'accepted'
       });
 
       await chat.save();
@@ -397,8 +511,7 @@ class ChatController {
           _id: String(req.user._id),
           id: String(req.user._id),
           profile: req.user.profile,
-          providerProfile: req.user.providerProfile,
-          email: req.user.email
+          providerProfile: req.user.providerProfile
         }
       };
       this.emitNewMessage(chat, messageWithSender);
@@ -470,9 +583,14 @@ class ChatController {
               const senderData = await User.findById(msg.sender)
                 .select('profile providerProfile')
                 .lean();
-              return { ...msg, sender: senderData };
+              if (senderData) {
+                // Ensure both _id and id are present as strings for consistent client-side comparison
+                senderData.id = String(senderData._id);
+                senderData._id = String(senderData._id);
+              }
+              return { ...msg, sender: senderData || String(msg.sender) };
             } catch {
-              return msg;
+              return { ...msg, sender: String(msg.sender) };
             }
           }
           return msg;
@@ -481,20 +599,23 @@ class ChatController {
 
       console.log(`📬 Found ${populatedMessages.length} messages for chat ${chatId}`);
 
-      // Determinar rol del usuario para marcar mensajes
-      const userRoles = Array.isArray(req.user?.roles) ? req.user.roles : [req.user?.role];
-      const isProvider = userRoles.includes('provider');
-      const isClient = userRoles.includes('client');
-      const userRole = (isProvider && !isClient) ? 'Provider' : 'Client';
+      // Determinar rol del usuario basado en su posición en ESTE chat específico
+      // (no en sus roles globales, para soportar usuarios duales correctamente)
+      const userIdStr = req.user._id.toString();
+      const chatClientId = chat.participants.client?.toString();
+      const chatProviderId = chat.participants.provider?.toString();
+      const userIsClientInChat = userIdStr === chatClientId;
+      const userIsProviderInChat = userIdStr === chatProviderId;
+      const userRole = userIsProviderInChat ? 'Provider' : 'Client';
 
       // Marcar mensajes como leídos
       await this.markMessagesAsRead(chatId, req.user._id, userRole);
 
-      // Resetear contador de no leídos
-      if (userRoles.includes('client')) {
+      // Resetear contador de no leídos solo para la posición del usuario en este chat
+      if (userIsClientInChat) {
         chat.unreadCount.client = 0;
       }
-      if (userRoles.includes('provider')) {
+      if (userIsProviderInChat) {
         chat.unreadCount.provider = 0;
       }
       await chat.save();
@@ -524,7 +645,8 @@ class ChatController {
   }
 
   /**
-   * Obtener chats del usuario
+   * Obtener chats del usuario — agrupados por par de participantes (conversación unificada)
+   * Cada par client+provider produce una sola entrada con todos los chats relacionados
    */
   async getUserChats(req, res) {
     try {
@@ -581,9 +703,96 @@ class ChatController {
         return chatObj;
       }));
 
+      // --- Agrupar chats por par de participantes ---
+      const pairMap = new Map(); // key: "clientId_providerId" → conversation group
+      for (const chat of populatedChats) {
+        const clientId = String(chat.participants?.client?._id || chat.participants?.client);
+        const providerId = String(chat.participants?.provider?._id || chat.participants?.provider);
+        const pairKey = `${clientId}_${providerId}`;
+
+        if (!pairMap.has(pairKey)) {
+          pairMap.set(pairKey, {
+            // Datos de la conversación unificada
+            _id: pairKey, // ID virtual de la conversación
+            conversationId: pairKey,
+            participants: chat.participants,
+            // El chat más reciente determina la info principal
+            lastMessage: chat.lastMessage,
+            metadata: { ...chat.metadata },
+            // Contadores unificados
+            unreadCount: { client: 0, provider: 0 },
+            // Todos los chats individuales del par
+            relatedChats: [],
+            // Chat types presentes
+            chatTypes: [],
+            // Datos de propuesta y booking (si existen)
+            proposal: null,
+            booking: null,
+            serviceRequest: null,
+            // Estado de aceptación del proveedor (el más relevante)
+            providerAccepted: 'accepted', // default si no hay inquiry/info_request
+            // Chat primario (el más reciente para referencia)
+            primaryChatId: String(chat._id),
+            status: chat.status
+          });
+        }
+
+        const group = pairMap.get(pairKey);
+        
+        // Agregar chat a la lista de relacionados
+        group.relatedChats.push({
+          _id: String(chat._id),
+          chatType: chat.chatType,
+          status: chat.status,
+          providerAccepted: chat.providerAccepted || 'pending',
+          booking: chat.booking,
+          proposal: chat.proposal,
+          serviceRequest: chat.serviceRequest,
+          lastActivity: chat.metadata?.lastActivity,
+          unreadCount: chat.unreadCount
+        });
+
+        // Agregar tipo si no existe
+        if (!group.chatTypes.includes(chat.chatType)) {
+          group.chatTypes.push(chat.chatType);
+        }
+
+        // Sumar contadores de no leídos
+        group.unreadCount.client += (chat.unreadCount?.client || 0);
+        group.unreadCount.provider += (chat.unreadCount?.provider || 0);
+
+        // Mantener el lastMessage más reciente
+        const chatActivity = chat.metadata?.lastActivity ? new Date(chat.metadata.lastActivity) : new Date(0);
+        const groupActivity = group.metadata?.lastActivity ? new Date(group.metadata.lastActivity) : new Date(0);
+        if (chatActivity > groupActivity) {
+          group.lastMessage = chat.lastMessage;
+          group.metadata.lastActivity = chat.metadata.lastActivity;
+          group.primaryChatId = String(chat._id);
+        }
+
+        // Mantener referencia a propuesta, booking, serviceRequest si existen
+        if (chat.proposal) group.proposal = chat.proposal;
+        if (chat.booking) group.booking = chat.booking;
+        if (chat.serviceRequest) group.serviceRequest = chat.serviceRequest;
+
+        // Estado de aceptación: si hay algún inquiry/info_request pendiente, mostrar como pendiente
+        if ((chat.chatType === 'inquiry' || chat.chatType === 'info_request') && 
+            (chat.providerAccepted === 'pending' || chat.providerAccepted === 'declined')) {
+          group.providerAccepted = chat.providerAccepted;
+        }
+      }
+
+      // Convertir a array ordenado por última actividad
+      const conversations = Array.from(pairMap.values())
+        .sort((a, b) => {
+          const ta = a.metadata?.lastActivity ? new Date(a.metadata.lastActivity) : new Date(0);
+          const tb = b.metadata?.lastActivity ? new Date(b.metadata.lastActivity) : new Date(0);
+          return tb - ta;
+        });
+
       res.json({
         success: true,
-        data: { chats: populatedChats }
+        data: { chats: conversations }
       });
     } catch (error) {
       console.error('ChatController - getUserChats error:', error);
@@ -591,6 +800,252 @@ class ChatController {
         success: false,
         message: 'Failed to get chats'
       });
+    }
+  }
+
+  /**
+   * Obtener mensajes de una conversación unificada (todos los chats entre dos participantes)
+   * Combina mensajes de todos los chats entre el par, ordenados cronológicamente
+   */
+  async getConversationMessages(req, res) {
+    try {
+      const { participantId } = req.params;
+      const { page = 1, limit = 80 } = req.query;
+      const userId = req.user._id;
+      const userRoles = Array.isArray(req.user?.roles) ? req.user.roles : [req.user?.role];
+
+      // Buscar todos los chats entre este usuario y el participante
+      const chats = await Chat.find({
+        $or: [
+          { 'participants.client': userId, 'participants.provider': participantId },
+          { 'participants.client': participantId, 'participants.provider': userId }
+        ]
+      }).select('_id chatType participants unreadCount').lean();
+
+      if (!chats.length) {
+        return res.status(404).json({
+          success: false,
+          message: 'No conversations found with this participant'
+        });
+      }
+
+      const chatIds = chats.map(c => c._id);
+
+      // Obtener mensajes de todos los chats combinados
+      const totalMessages = await Message.countDocuments({ chat: { $in: chatIds } });
+      const messages = await Message.find({ chat: { $in: chatIds } })
+        .sort({ 'metadata.timestamp': -1 })
+        .skip((page - 1) * limit)
+        .limit(parseInt(limit))
+        .lean();
+
+      // Crear mapa de chatId → chatType para anotar cada mensaje
+      const chatTypeMap = {};
+      for (const c of chats) {
+        chatTypeMap[String(c._id)] = c.chatType;
+      }
+
+      // Manually populate sender
+      const populatedMessages = await Promise.all(
+        messages.map(async (msg) => {
+          const enriched = {
+            ...msg,
+            chatType: chatTypeMap[String(msg.chat)] || 'booking'
+          };
+          if (msg.sender && msg.senderModel && msg.senderModel !== 'System') {
+            try {
+              const senderData = await User.findById(msg.sender)
+                .select('profile providerProfile')
+                .lean();
+              if (senderData) {
+                // Ensure both _id and id are present as strings for consistent client-side comparison
+                senderData.id = String(senderData._id);
+                senderData._id = String(senderData._id);
+              }
+              return { ...enriched, sender: senderData || String(msg.sender) };
+            } catch {
+              return { ...enriched, sender: String(msg.sender) };
+            }
+          }
+          return enriched;
+        })
+      );
+
+      // Determinar rol del usuario basado en su posición en los chats (no en roles globales)
+      // Todos los chats del par comparten los mismos participantes
+      const firstChat = chats[0];
+      const userIdStr = userId.toString();
+      const chatClientId = firstChat.participants?.client?.toString();
+      const chatProviderId = firstChat.participants?.provider?.toString();
+      const userIsClientInChat = userIdStr === chatClientId;
+      const userIsProviderInChat = userIdStr === chatProviderId;
+      const userRole = userIsProviderInChat ? 'Provider' : 'Client';
+
+      // Marcar mensajes como leídos en TODOS los chats del par
+      for (const chatId of chatIds) {
+        await this.markMessagesAsRead(chatId, userId, userRole);
+      }
+
+      // Resetear contadores de no leídos en todos los chats (basado en posición, no rol global)
+      const updateField = userIsClientInChat ? { 'unreadCount.client': 0 } : { 'unreadCount.provider': 0 };
+      await Chat.updateMany({ _id: { $in: chatIds } }, { $set: updateField });
+
+      // Emitir actualización de contadores
+      try { emitter.emitCountersUpdateToUserDebounced(userId, { reasons: ['conversation_unread_clear'] }); } catch { /* ignore */ }
+
+      res.json({
+        success: true,
+        data: {
+          messages: populatedMessages.reverse(),
+          chatIds: chatIds.map(String),
+          pagination: {
+            page: parseInt(page),
+            limit: parseInt(limit),
+            total: totalMessages
+          }
+        }
+      });
+    } catch (error) {
+      console.error('ChatController - getConversationMessages error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to get conversation messages'
+      });
+    }
+  }
+
+  /**
+   * Aceptar un chat de consulta (proveedor acepta la solicitud de conversación)
+   */
+  async acceptChat(req, res) {
+    try {
+      const { chatId } = req.params;
+      const userId = req.user._id;
+
+      const chat = await Chat.findOne({
+        _id: chatId,
+        'participants.provider': userId,
+        chatType: { $in: ['inquiry', 'info_request'] }
+      });
+
+      if (!chat) {
+        return res.status(404).json({
+          success: false,
+          message: 'Chat not found or not authorized'
+        });
+      }
+
+      if (chat.providerAccepted === 'accepted') {
+        return res.json({ success: true, message: 'Already accepted', data: { chat } });
+      }
+
+      chat.providerAccepted = 'accepted';
+      chat.metadata.lastActivity = new Date();
+      await chat.save();
+
+      // Crear mensaje de sistema
+      const providerName = req.user.providerProfile?.businessName ||
+        `${req.user.profile?.firstName || ''} ${req.user.profile?.lastName || ''}`.trim() || 'El profesional';
+      
+      const systemMessage = await this.createSystemMessage(
+        chat._id,
+        `✅ ${providerName} ha aceptado la conversación.`,
+        {
+          key: 'chat.system.chatAccepted',
+          params: { providerName }
+        }
+      );
+
+      // Emitir mensaje de sistema via WebSocket para que aparezca en tiempo real
+      if (systemMessage) {
+        const systemMsgPayload = {
+          ...systemMessage.toObject(),
+          _id: String(systemMessage._id),
+          chat: String(chat._id)
+        };
+        this.emitNewMessage(chat, systemMsgPayload);
+      }
+
+      // Notificar al cliente
+      const clientId = chat.participants.client.toString();
+      try {
+        emitter.emitCountersUpdateToUserDebounced(clientId, { reasons: ['chat_accepted'] });
+      } catch { /* ignore */ }
+
+      res.json({
+        success: true,
+        message: 'Chat accepted',
+        data: { chat }
+      });
+    } catch (error) {
+      console.error('ChatController - acceptChat error:', error);
+      res.status(500).json({ success: false, message: 'Failed to accept chat' });
+    }
+  }
+
+  /**
+   * Rechazar un chat de consulta (proveedor declina la solicitud de conversación)
+   */
+  async declineChat(req, res) {
+    try {
+      const { chatId } = req.params;
+      const userId = req.user._id;
+
+      const chat = await Chat.findOne({
+        _id: chatId,
+        'participants.provider': userId,
+        chatType: { $in: ['inquiry', 'info_request'] }
+      });
+
+      if (!chat) {
+        return res.status(404).json({
+          success: false,
+          message: 'Chat not found or not authorized'
+        });
+      }
+
+      chat.providerAccepted = 'declined';
+      chat.status = 'archived';
+      chat.metadata.lastActivity = new Date();
+      await chat.save();
+
+      // Crear mensaje de sistema
+      const providerName = req.user.providerProfile?.businessName ||
+        `${req.user.profile?.firstName || ''} ${req.user.profile?.lastName || ''}`.trim() || 'El profesional';
+
+      const systemMessage = await this.createSystemMessage(
+        chat._id,
+        `❌ ${providerName} ha declinado la conversación.`,
+        {
+          key: 'chat.system.chatDeclined',
+          params: { providerName }
+        }
+      );
+
+      // Emitir mensaje de sistema via WebSocket para que aparezca en tiempo real
+      if (systemMessage) {
+        const systemMsgPayload = {
+          ...systemMessage.toObject(),
+          _id: String(systemMessage._id),
+          chat: String(chat._id)
+        };
+        this.emitNewMessage(chat, systemMsgPayload);
+      }
+
+      // Notificar al cliente
+      const clientId = chat.participants.client.toString();
+      try {
+        emitter.emitCountersUpdateToUserDebounced(clientId, { reasons: ['chat_declined'] });
+      } catch { /* ignore */ }
+
+      res.json({
+        success: true,
+        message: 'Chat declined',
+        data: { chat }
+      });
+    } catch (error) {
+      console.error('ChatController - declineChat error:', error);
+      res.status(500).json({ success: false, message: 'Failed to decline chat' });
     }
   }
 

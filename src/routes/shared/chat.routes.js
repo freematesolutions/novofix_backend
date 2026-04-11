@@ -23,6 +23,16 @@ router.post('/proposal/:proposalId', chatController.createOrGetProposalChat.bind
 // Crear chat para solicitar más información sobre una solicitud de servicio
 router.post('/request/:requestId/info', chatController.createInfoRequestChat.bind(chatController));
 
+// Crear o obtener chat de consulta directa (cliente → proveedor)
+router.post('/inquiry/:providerId', chatController.createOrGetInquiryChat.bind(chatController));
+
+// Obtener mensajes de conversación unificada (todos los chats con un participante)
+router.get('/conversation/:participantId/messages', chatController.getConversationMessages.bind(chatController));
+
+// Aceptar/Rechazar chat de consulta (proveedor)
+router.patch('/:chatId/accept', chatController.acceptChat.bind(chatController));
+router.patch('/:chatId/decline', chatController.declineChat.bind(chatController));
+
 // Gestión de mensajes específicos del chat
 router.get('/:chatId/messages', chatController.getChatMessages.bind(chatController));
 router.post('/:chatId/messages', chatController.sendMessage.bind(chatController));

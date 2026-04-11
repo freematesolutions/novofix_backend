@@ -41,6 +41,12 @@ const chatSchema = new mongoose.Schema({
     enum: ['active', 'archived', 'blocked'],
     default: 'active'
   },
+  // Aceptación del proveedor para chats de consulta/info_request
+  providerAccepted: {
+    type: String,
+    enum: ['pending', 'accepted', 'declined'],
+    default: 'pending'
+  },
   lastMessage: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Message'

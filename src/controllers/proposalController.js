@@ -273,6 +273,11 @@ class ProposalController {
       // Vincular a la request si aún no estaba
       await ServiceRequest.findByIdAndUpdate(proposal.serviceRequest, { $addToSet: { proposals: proposal._id }, $inc: { 'metadata.proposalCount': 1 } });
 
+      // Datos de pricing para notificación
+      const pricingIsRange = !!proposal?.pricing?.isRange;
+      const pricingAmountMin = proposal?.pricing?.amountMin;
+      const pricingAmountMax = proposal?.pricing?.amountMax;
+
       // Notificar al cliente
       await notificationService.sendClientNotification({
         clientId: proposal.serviceRequest.client,
@@ -281,7 +286,10 @@ class ProposalController {
           requestId: proposal.serviceRequest._id,
           proposalId: proposal._id,
           providerName: req.user.providerProfile?.businessName,
-          amount: amount
+          amount: amount,
+          isRange: pricingIsRange,
+          amountMin: pricingAmountMin,
+          amountMax: pricingAmountMax
         }
       });
 
@@ -296,7 +304,10 @@ class ProposalController {
           requestTitle: proposal.serviceRequest.basicInfo?.title || 'Solicitud',
           proposalId: proposal._id,
           providerName: req.user.providerProfile?.businessName || 'Proveedor',
-          amount: amount
+          amount: amount,
+          isRange: pricingIsRange,
+          amountMin: pricingAmountMin,
+          amountMax: pricingAmountMax
         });
       } catch (err) {
         console.error('Error emitting NEW_PROPOSAL_RECEIVED:', err);
@@ -563,7 +574,10 @@ class ProposalController {
           requestTitle: serviceRequest.basicInfo.title,
           proposalId: proposal._id,
           providerName: req.user.providerProfile.businessName,
-          amount: amount
+          amount: amount,
+          isRange: !!isRange,
+          amountMin: isRange ? Number(amountMin) : undefined,
+          amountMax: isRange ? Number(amountMax) : undefined
         }
       });
 
@@ -581,7 +595,10 @@ class ProposalController {
           requestTitle: serviceRequest.basicInfo.title,
           proposalId: proposal._id,
           providerName: req.user.providerProfile?.businessName || 'Proveedor',
-          amount: amount
+          amount: amount,
+          isRange: !!isRange,
+          amountMin: isRange ? Number(amountMin) : undefined,
+          amountMax: isRange ? Number(amountMax) : undefined
         });
       } catch (err) {
         console.error('Error emitting NEW_PROPOSAL_RECEIVED:', err);
@@ -755,17 +772,21 @@ class ProposalController {
       // Crear booking (será implementado en BookingController)
   const booking = await bookingController.createBookingFromProposal(proposal);
 
-      // Notificar al proveedor que su propuesta fue aceptada
-      await notificationService.sendProviderNotification({
-        providerId: proposal.provider._id,
-        serviceRequestId: proposal.serviceRequest._id,
-        type: 'PROPOSAL_ACCEPTED',
-        data: {
-          proposalId: proposal._id,
-          requestTitle: proposal.serviceRequest.basicInfo.title,
-          clientName: req.user.profile.firstName
-        }
-      });
+      // Notificar al proveedor que su propuesta fue aceptada (non-critical, don't fail the request)
+      try {
+        await notificationService.sendProviderNotification({
+          providerId: proposal.provider._id,
+          serviceRequestId: proposal.serviceRequest._id,
+          type: 'PROPOSAL_ACCEPTED',
+          data: {
+            proposalId: proposal._id,
+            requestTitle: proposal.serviceRequest.basicInfo?.title || '',
+            clientName: req.user.profile?.firstName || ''
+          }
+        });
+      } catch (notifErr) {
+        console.warn('acceptProposal: failed to send PROPOSAL_ACCEPTED to provider', notifErr?.message);
+      }
 
       // Notificar al cliente que la reserva ha sido confirmada
       try {
@@ -775,22 +796,26 @@ class ProposalController {
           data: {
             bookingId: booking?._id,
             providerName: proposal.provider.providerProfile?.businessName || proposal.provider.profile?.firstName || '',
-            requestTitle: proposal.serviceRequest.basicInfo.title
+            requestTitle: proposal.serviceRequest.basicInfo?.title || ''
           }
         });
       } catch (err) {
         console.warn('acceptProposal: failed to send BOOKING_CONFIRMED to client', err?.message);
       }
 
-      // Rechazar automáticamente otras propuestas
-      await Proposal.updateMany(
-        {
-          serviceRequest: proposal.serviceRequest._id,
-          _id: { $ne: proposalId },
-          status: { $in: ['sent', 'viewed'] }
-        },
-        { $set: { status: 'rejected' } }
-      );
+      // Rechazar automáticamente otras propuestas (non-critical)
+      try {
+        await Proposal.updateMany(
+          {
+            serviceRequest: proposal.serviceRequest._id,
+            _id: { $ne: proposalId },
+            status: { $in: ['sent', 'viewed'] }
+          },
+          { $set: { status: 'rejected' } }
+        );
+      } catch (rejectErr) {
+        console.warn('acceptProposal: failed to auto-reject other proposals', rejectErr?.message);
+      }
 
       // Real-time counters updates for both parties (bookings and requests/proposals change)
       try { emitter.emitCountersUpdateToUser(req.user._id, { reason: 'proposal_accepted' }); } catch { /* ignore */ }

@@ -571,12 +571,15 @@ class NotificationService {
           priority: 'medium',
           emailTemplate: 'verify_email'
         };
-      case 'NEW_PROPOSAL':
+      case 'NEW_PROPOSAL': {
+        const proposalPriceStr = extra?.isRange && extra?.amountMin != null && extra?.amountMax != null
+          ? `$${Number(extra.amountMin).toLocaleString('en-US')} – $${Number(extra.amountMax).toLocaleString('en-US')}`
+          : `$${extra?.amount || 0}`;
         return {
           ...base,
           subject: '¡Nueva propuesta recibida! 💼',
           message: extra?.providerName 
-            ? `${extra.providerName} te ha enviado una propuesta por $${extra.amount || 0} para tu solicitud.`
+            ? `${extra.providerName} te ha enviado una propuesta por ${proposalPriceStr} para tu solicitud.`
             : 'Has recibido una nueva propuesta de un profesional.',
           actionUrl: extra?.requestId ? `/mis-solicitudes/${extra.requestId}/propuestas` : '/mis-solicitudes',
           priority: 'high',
@@ -585,9 +588,13 @@ class NotificationService {
           extraData: { 
             providerName: extra?.providerName || '', 
             amount: extra?.amount || '',
+            amountMin: extra?.amountMin || '',
+            amountMax: extra?.amountMax || '',
+            isRange: extra?.isRange || false,
             requestId: extra?.requestId || ''
           }
         };
+      }
       case 'BOOKING_STATUS_UPDATE':
         return {
           ...base,
@@ -676,10 +683,10 @@ class NotificationService {
       case 'NEW_CLIENT_REVIEW':
         return {
           ...base,
-          subject: 'Han valorado tu servicio ⭐',
+          subject: 'Has recibido una valoración ⭐',
           message: extra?.providerName
             ? `${extra.providerName} ha valorado tu experiencia como cliente.`
-            : 'Has recibido una valoración.',
+            : 'Has recibido una valoración de un profesional.',
           actionUrl: '/reservas',
           priority: 'medium',
           extraData: { providerName: extra?.providerName || '', rating: extra?.rating || '' }

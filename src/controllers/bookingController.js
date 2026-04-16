@@ -694,7 +694,12 @@ class BookingController {
       }
 
       // Fetch the PDF using the authenticated URL
-      const response = await fetch(fetchUrl);
+      let response = await fetch(fetchUrl);
+      // If the private_download_url failed but we have the original URL, try it directly
+      if (!response.ok && fetchUrl !== pdfUrl) {
+        console.warn(`BookingController - getInvoicePdf: private_download_url returned ${response.status}, retrying with original URL`);
+        response = await fetch(pdfUrl);
+      }
       if (!response.ok) {
         console.error(`BookingController - getInvoicePdf: Cloudinary returned ${response.status} for ${fetchUrl}`);
         return res.status(502).json({ success: false, message: 'Failed to fetch invoice PDF from storage' });

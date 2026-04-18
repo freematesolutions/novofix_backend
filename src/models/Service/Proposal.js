@@ -67,7 +67,8 @@ const proposalSchema = new mongoose.Schema({
   },
   message: {
     type: String,
-    required: true
+    required: false,
+    default: ''
   },
   // Traducciones automáticas del mensaje
   translations: {

@@ -1184,11 +1184,11 @@ class GuestController {
 
       const planPriority = { pro: 3, basic: 2, free: 1 };
 
-      // Buscar proveedores activos que tengan videos en su portfolio
+      // Buscar proveedores activos que tengan videos marcados como reel
       const providersWithVideos = await Provider.find({
         isActive: true,
         'providerProfile.portfolio': {
-          $elemMatch: { type: 'video' }
+          $elemMatch: { type: 'video', isReel: true }
         }
       })
       .sort({
@@ -1217,7 +1217,7 @@ class GuestController {
         const rating = provider.providerProfile?.rating?.average || 0;
 
         portfolio
-          .filter(item => item.type === 'video')
+          .filter(item => item.type === 'video' && item.isReel === true)
           .forEach(item => {
             reels.push({
               _id: item._id?.toString() || `${provider._id}-${item.url}`,

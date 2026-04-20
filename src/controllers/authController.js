@@ -1388,6 +1388,7 @@ class AuthController {
         type: item.type,
         caption: item.caption || '',
         category: item.category || null,
+        isReel: item.type === 'video' ? Boolean(item.isReel) : false,
         uploadedAt: new Date()
       }));
 
@@ -1410,6 +1411,42 @@ class AuthController {
         message: 'Failed to add portfolio items',
         error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
+    }
+  }
+
+  /**
+   * Toggle isReel flag on a portfolio video item
+   */
+  async togglePortfolioReel(req, res) {
+    try {
+      const { itemId } = req.params;
+      const { isReel } = req.body;
+
+      const provider = await Provider.findById(req.user._id);
+      if (!provider) {
+        return res.status(404).json({ success: false, message: 'Provider not found' });
+      }
+
+      const item = provider.providerProfile.portfolio.id(itemId);
+      if (!item) {
+        return res.status(404).json({ success: false, message: 'Portfolio item not found' });
+      }
+
+      if (item.type !== 'video') {
+        return res.status(400).json({ success: false, message: 'Only videos can be marked as reels' });
+      }
+
+      item.isReel = Boolean(isReel);
+      await provider.save();
+
+      res.json({
+        success: true,
+        message: isReel ? 'Video marked as reel' : 'Video unmarked as reel',
+        data: { itemId, isReel: item.isReel }
+      });
+    } catch (error) {
+      console.error('AuthController - togglePortfolioReel error:', error);
+      res.status(500).json({ success: false, message: 'Failed to toggle reel status' });
     }
   }
 

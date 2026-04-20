@@ -80,6 +80,7 @@ router.put('/profile/provider', authenticateJWT, providerOnly, authController.up
 
 // Rutas de portfolio para proveedores
 router.post('/portfolio', authenticateJWT, providerOnly, authController.addPortfolioItems);
+router.patch('/portfolio/:itemId/reel', authenticateJWT, providerOnly, authController.togglePortfolioReel);
 router.delete('/portfolio/:itemId', authenticateJWT, providerOnly, authController.deletePortfolioItem);
 
 // Rutas de administración de usuarios (solo admin)

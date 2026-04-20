@@ -120,7 +120,8 @@ const providerSchema = new mongoose.Schema({
       cloudinaryId: String,
       type: { type: String, enum: ['image', 'video'], required: true },
       caption: String,
-      category: { type: String, enum: SERVICE_CATEGORIES }, // Categoría asociada
+      category: { type: String, enum: SERVICE_CATEGORIES },
+      isReel: { type: Boolean, default: false },
       uploadedAt: { type: Date, default: Date.now }
     }]
   },

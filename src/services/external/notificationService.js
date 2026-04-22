@@ -245,6 +245,50 @@ class NotificationService {
           }
         };
 
+      case 'NEW_BOOKING_SCHEDULED': {
+        const when = extra?.scheduledDate ? new Date(extra.scheduledDate) : null;
+        const whenStr = when ? when.toLocaleDateString('es', { day: 'numeric', month: 'long' }) : '';
+        return {
+          ...baseData,
+          subject: '🗓️ Nuevo trabajo agendado',
+          message: extra?.clientName
+            ? `${extra.clientName} confirmó el servicio${whenStr ? ` para el ${whenStr}` : ''}${extra?.scheduledTime ? ` a las ${extra.scheduledTime}` : ''}.`
+            : `Tienes un nuevo trabajo agendado${whenStr ? ` para el ${whenStr}` : ''}.`,
+          actionUrl: '/calendario',
+          priority: 'high',
+          extraData: {
+            bookingId: extra?.bookingId || '',
+            clientName: extra?.clientName || '',
+            serviceTitle: extra?.serviceTitle || '',
+            scheduledDate: extra?.scheduledDate || '',
+            scheduledTime: extra?.scheduledTime || ''
+          }
+        };
+      }
+
+      case 'BOOKING_REMINDER': {
+        const when = extra?.scheduledDate ? new Date(extra.scheduledDate) : null;
+        const whenStr = when ? when.toLocaleDateString('es', { day: 'numeric', month: 'long' }) : '';
+        const windowLabel = extra?.window === '2h' ? 'en 2 horas' : 'mañana';
+        return {
+          ...baseData,
+          subject: '⏰ Recordatorio de trabajo',
+          message: extra?.clientName
+            ? `Recordatorio: servicio con ${extra.clientName} ${windowLabel}${extra?.scheduledTime ? ` a las ${extra.scheduledTime}` : ''}.`
+            : `Recordatorio: tienes un trabajo agendado ${windowLabel}${whenStr ? ` (${whenStr})` : ''}.`,
+          actionUrl: '/calendario',
+          priority: 'high',
+          extraData: {
+            bookingId: extra?.bookingId || '',
+            clientName: extra?.clientName || '',
+            serviceTitle: extra?.serviceTitle || '',
+            scheduledDate: extra?.scheduledDate || '',
+            scheduledTime: extra?.scheduledTime || '',
+            window: extra?.window || ''
+          }
+        };
+      }
+
       case 'REQUEST_UPDATED': {
         const updClientName = extra?.clientName || serviceRequest?.client?.profile?.firstName || '';
         return {

@@ -145,11 +145,12 @@ const bookingSchema = new mongoose.Schema({
   reminders: [{
     type: {
       type: String,
-      enum: ['email', 'sms', 'push']
+      enum: ['email', 'sms', 'push', 'in_app']
     },
     scheduledFor: Date,
     sent: { type: Boolean, default: false },
-    sentAt: Date
+    sentAt: Date,
+    window: { type: String, enum: ['24h', '2h'], default: undefined }
   }],
   invoice: {
     invoiceNumber: String,

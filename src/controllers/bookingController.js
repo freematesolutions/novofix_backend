@@ -92,6 +92,34 @@ class BookingController {
       // Agregar recordatorios
       await this.scheduleReminders(booking);
 
+      // Notificar al profesional del nuevo trabajo agendado (in-app + socket)
+      try {
+        // Resolver nombre del cliente
+        let clientName = '';
+        try {
+          const Client = (await import('../models/User/Client.js')).default;
+          const clientUser = await Client.findById(serviceRequest.client).select('profile').lean();
+          clientName = clientUser?.profile
+            ? `${clientUser.profile.firstName || ''} ${clientUser.profile.lastName || ''}`.trim()
+            : '';
+        } catch { /* ignore */ }
+
+        await notificationService.sendProviderNotification({
+          providerId: provider._id,
+          type: 'NEW_BOOKING_SCHEDULED',
+          priority: 'high',
+          data: {
+            bookingId: booking._id,
+            clientName,
+            serviceTitle: serviceRequest?.basicInfo?.title || '',
+            scheduledDate: derivedDate,
+            scheduledTime: derivedTime
+          }
+        });
+      } catch (err) {
+        console.warn('createBookingFromProposal: failed to notify provider', err?.message);
+      }
+
       return booking;
     } catch (error) {
       console.error('BookingController - createBookingFromProposal error:', error);
@@ -404,35 +432,28 @@ class BookingController {
   }
 
   /**
-   * Programar recordatorios
+   * Programar recordatorios in-app para el proveedor.
+   * 24h y 2h antes del inicio real del servicio.
    */
   async scheduleReminders(booking) {
     try {
+      const scheduledDate = new Date(booking.schedule.scheduledDate);
+      const timeStr = booking.schedule.scheduledTime || '09:00';
+      const [hh, mm] = timeStr.split(':').map(Number);
+      if (Number.isFinite(hh) && Number.isFinite(mm)) {
+        scheduledDate.setHours(hh, mm, 0, 0);
+      }
+
       const reminders = [];
+      const dayBefore = new Date(scheduledDate.getTime() - 24 * 60 * 60 * 1000);
+      reminders.push({ type: 'in_app', scheduledFor: dayBefore, sent: false, window: '24h' });
 
-      // Recordatorio 24 horas antes
-      const dayBefore = new Date(booking.schedule.scheduledDate);
-      dayBefore.setDate(dayBefore.getDate() - 1);
-      reminders.push({
-        type: 'email',
-        scheduledFor: dayBefore,
-        sent: false
-      });
-
-      // Recordatorio 2 horas antes
-      const twoHoursBefore = new Date(booking.schedule.scheduledDate);
-      twoHoursBefore.setHours(twoHoursBefore.getHours() - 2);
-      reminders.push({
-        type: 'sms',
-        scheduledFor: twoHoursBefore,
-        sent: false
-      });
+      const twoHoursBefore = new Date(scheduledDate.getTime() - 2 * 60 * 60 * 1000);
+      reminders.push({ type: 'in_app', scheduledFor: twoHoursBefore, sent: false, window: '2h' });
 
       booking.reminders = reminders;
       await booking.save();
-
-      // Aquí se integraría con un sistema de jobs (node-cron, agenda, bull)
-      console.log('Reminders scheduled for booking:', booking._id);
+      console.log(`[Booking ${booking._id}] Reminders scheduled: 24h @ ${dayBefore.toISOString()}, 2h @ ${twoHoursBefore.toISOString()}`);
     } catch (error) {
       console.error('BookingController - scheduleReminders error:', error);
     }

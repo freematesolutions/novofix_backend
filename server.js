@@ -64,6 +64,10 @@ process.on('SIGTERM', async () => {
     const { stopNudgeProcessor } = await import('./src/services/internal/nudgeProcessor.js');
     stopNudgeProcessor();
   } catch { /* ignore */ }
+  try {
+    const { stopReminderJob } = await import('./src/services/internal/reminderJob.js');
+    stopReminderJob();
+  } catch { /* ignore */ }
   if (server) {
     server.close(() => {
       console.log('💥 Process terminated!');
@@ -124,6 +128,15 @@ async function startServer() {
       console.log('[🔔 NUDGES] Persistent nudge processor started ✅');
     } catch (nudgeErr) {
       console.warn('[🔔 NUDGES] Could not start nudge processor:', nudgeErr.message);
+    }
+
+    // 1.7 Start booking reminder job (24h/2h pre-service in-app reminders for providers)
+    try {
+      const { startReminderJob } = await import('./src/services/internal/reminderJob.js');
+      startReminderJob();
+      console.log('[⏰ REMINDERS] Booking reminder job started ✅');
+    } catch (remErr) {
+      console.warn('[⏰ REMINDERS] Could not start reminder job:', remErr.message);
     }
 
     // 2. Esperar a que Redis esté listo

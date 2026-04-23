@@ -48,5 +48,6 @@ router.get('/bookings/:id', (req, res) => {
 });
 router.put('/bookings/:id/status', bookingController.updateBookingStatus.bind(bookingController));
 router.post('/bookings/:id/evidence', bookingController.uploadServiceEvidence.bind(bookingController));
+router.delete('/bookings/:id/evidence/:type/:itemId', bookingController.deleteServiceEvidence.bind(bookingController));
 
 export default router;

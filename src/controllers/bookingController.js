@@ -322,6 +322,10 @@ class BookingController {
       booking.serviceEvidence[type].push(...evidenceItems);
       await booking.save();
 
+      // Recuperar los items recién insertados (con _id asignado por Mongoose)
+      const savedList = booking.serviceEvidence[type] || [];
+      const savedItems = savedList.slice(savedList.length - evidenceItems.length);
+
       // Notificar al cliente si es evidencia "after" (trabajo completado)
       if (type === 'after') {
         await notificationService.sendClientNotification({
@@ -339,7 +343,7 @@ class BookingController {
         success: true,
         message: 'Service evidence uploaded successfully',
         data: {
-          evidence: evidenceItems
+          evidence: savedItems
         }
       });
     } catch (error) {
@@ -347,6 +351,73 @@ class BookingController {
       res.status(500).json({
         success: false,
         message: 'Failed to upload service evidence'
+      });
+    }
+  }
+
+  /**
+   * Eliminar un item de evidencia (before/after) — solo el proveedor dueño del booking
+   */
+  async deleteServiceEvidence(req, res) {
+    try {
+      const { id, type, itemId } = req.params;
+
+      if (!['before', 'after'].includes(type)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid evidence type. Only "before" and "after" are allowed.'
+        });
+      }
+
+      const booking = await Booking.findOne({
+        _id: id,
+        provider: req.user._id
+      });
+
+      if (!booking) {
+        return res.status(404).json({
+          success: false,
+          message: 'Booking not found'
+        });
+      }
+
+      const list = booking.serviceEvidence?.[type] || [];
+      const item = list.id ? list.id(itemId) : list.find((x) => String(x._id) === String(itemId));
+
+      if (!item) {
+        return res.status(404).json({
+          success: false,
+          message: 'Evidence item not found'
+        });
+      }
+
+      // Intentar borrar en Cloudinary si tenemos cloudinaryId
+      if (item.cloudinaryId) {
+        try {
+          await cloudinary.uploader.destroy(item.cloudinaryId, { resource_type: 'auto' });
+        } catch (cloudErr) {
+          console.warn('Cloudinary destroy failed (continuing):', cloudErr?.message || cloudErr);
+        }
+      }
+
+      // Remover el subdocumento
+      if (typeof item.deleteOne === 'function') {
+        item.deleteOne();
+      } else {
+        booking.serviceEvidence[type] = list.filter((x) => String(x._id) !== String(itemId));
+      }
+      await booking.save();
+
+      res.json({
+        success: true,
+        message: 'Evidence item deleted successfully',
+        data: { type, itemId }
+      });
+    } catch (error) {
+      console.error('BookingController - deleteServiceEvidence error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to delete evidence item'
       });
     }
   }

@@ -59,6 +59,7 @@ router.post('/:id/confirm-completion', clientOnly, bookingController.confirmServ
 // Rutas específicas de proveedor
 router.put('/:id/status', providerOnly, bookingController.updateBookingStatus.bind(bookingController));
 router.post('/:id/evidence', providerOnly, bookingController.uploadServiceEvidence.bind(bookingController));
+router.delete('/:id/evidence/:type/:itemId', providerOnly, bookingController.deleteServiceEvidence.bind(bookingController));
 router.post('/:id/invoice', providerOnly, bookingController.saveInvoice.bind(bookingController));
 router.post('/:id/invoice-viewed', clientOnly, bookingController.markInvoiceViewed.bind(bookingController));
 router.get('/:id/invoice-pdf', bookingController.getInvoicePdf.bind(bookingController));

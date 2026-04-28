@@ -221,6 +221,9 @@ export async function getSitemap(req, res, next) {
     res.setHeader('Content-Type', 'application/xml; charset=utf-8');
     res.setHeader('Cache-Control', 'public, max-age=600, s-maxage=3600');
     res.setHeader('X-SEO-Cache', 'MISS');
+    if (String(process.env.SEO_DISALLOW_ALL || '').toLowerCase() === 'true') {
+      res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    }
     res.send(xml);
   } catch (err) {
     next(err);
@@ -229,6 +232,25 @@ export async function getSitemap(req, res, next) {
 
 /** GET /seo/robots.txt */
 export function getRobots(req, res) {
+  // Staging / dev environments: block all crawlers to avoid duplicate indexing
+  // and accidental ranking on the non-canonical domain. Activate by setting
+  // SEO_DISALLOW_ALL=true in the environment.
+  const disallowAll = String(process.env.SEO_DISALLOW_ALL || '').toLowerCase() === 'true';
+  if (disallowAll) {
+    const stagingLines = [
+      '# robots.txt for NovoFix (STAGING — indexing disabled)',
+      `# Origin: ${SITE_URL}`,
+      '',
+      'User-agent: *',
+      'Disallow: /',
+      '',
+    ];
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=3600, s-maxage=3600');
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    return res.send(stagingLines.join('\n'));
+  }
+
   const lines = [
     '# robots.txt for NovoFix (dynamically generated)',
     `# Origin: ${SITE_URL}`,

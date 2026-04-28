@@ -13,6 +13,7 @@ import { fileURLToPath } from 'url';
 // Importar rutas
 import routes from './src/routes/index.js';
 import stripeWebhookRoutes from './src/routes/shared/stripeWebhook.routes.js';
+import seoRoutes from './src/routes/shared/seo.routes.js';
 
 // server/src/app.js (actualización)
 import redisClient from './src/config/redis.js';
@@ -57,6 +58,12 @@ app.use(cors({
 // Stripe needs the raw body for signature verification and should NOT
 // go through session/JWT middleware (server-to-server call).
 app.use('/webhooks/stripe', stripeWebhookRoutes);
+
+// ─── SEO endpoints (sitemap.xml, robots.txt) ───
+// Mounted at root BEFORE auth/session/rate-limit middleware so search engine
+// crawlers can fetch them anonymously without consuming the user rate-limit
+// bucket. Both endpoints are read-only and cached in-memory + via CDN.
+app.use('/seo', seoRoutes);
 
 // Session and Auth middlewares (orden recomendado)
 // Allow skipping heavy session DB operations during tests

@@ -83,4 +83,19 @@ export const SERVICE_CATEGORIES_WITH_DESCRIPTION = SERVICE_CATEGORIES.map(cat =>
   description: getCategoryDescription(cat)
 }));
 
+/**
+ * Slug URL-safe a partir del nombre canónico de la categoría.
+ * Implementación gemela del helper que vive en
+ * `client/src/utils/categories.js` — debe permanecer 100% sincronizada
+ * para que las URLs del sitemap coincidan con las que el SPA resuelve.
+ */
+export function slugifyCategory(name) {
+  return String(name || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
 export default SERVICE_CATEGORIES;

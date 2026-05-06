@@ -3,6 +3,15 @@
 
 import { Resend } from 'resend';
 import nodemailer from 'nodemailer';
+import {
+  verifyEmailTemplate,
+  passwordResetTemplate,
+  passwordResetConfirmedTemplate,
+  welcomeTemplate,
+  notificationTemplate,
+  genericTemplate,
+} from './templates/index.js';
+import { normalizeLocale } from './templates/i18n.js';
 
 /**
  * Servicio de Email Unificado
@@ -18,7 +27,7 @@ import nodemailer from 'nodemailer';
 class EmailService {
   constructor() {
     this.isDevelopment = process.env.NODE_ENV !== 'production';
-    this.emailMode = process.env.EMAIL_MODE || (this.isDevelopment ? 'console' : 'smtp');
+    this.emailMode = (process.env.EMAIL_MODE || (this.isDevelopment ? 'console' : 'smtp')).toLowerCase().trim();
     
     // Configurar proveedores según el modo
     this.initializeProviders();
@@ -87,9 +96,16 @@ class EmailService {
   }
 
   /**
-   * Envía email usando el modo configurado
+   * Envía email usando el modo configurado.
+   *
+   * @param {Object} params
+   * @param {string} params.to        - Destinatario.
+   * @param {string} [params.subject] - Asunto (si se omite, lo determina la plantilla a partir del locale).
+   * @param {string} params.template  - Nombre de la plantilla.
+   * @param {Object} [params.data]    - Datos para la plantilla. Puede incluir `locale` ('es' | 'en').
+   * @param {string} [params.locale]  - Locale alternativo (si no viene en data).
    */
-  async sendEmail({ to, subject, template, data }) {
+  async sendEmail({ to, subject, template, data, locale }) {
     // Log detallado para diagnóstico en producción
     console.log('[📧 EMAIL] sendEmail llamado:', { 
       to, 
@@ -97,54 +113,58 @@ class EmailService {
       template, 
       mode: this.emailMode,
       smtpConfigured: !!this.smtpTransporter,
-      resendConfigured: !!this.resend
+      resendConfigured: !!this.resend,
+      sendgridConfigured: !!this.sendgridApiKey
     });
 
     try {
-      if (!to || !subject || !template) {
-        throw new Error('Missing required email parameters: to, subject, template');
+      if (!to || !template) {
+        throw new Error('Missing required email parameters: to, template');
       }
 
-      // Preparar datos seguros según la plantilla
-      const safeData = this.sanitizeTemplateData(template, data);
-      const html = this.getTemplateHtml(template, safeData);
+      const effectiveLocale = normalizeLocale(data?.locale || locale);
 
-      console.log(`[📧 EMAIL] Enviando con modo: ${this.emailMode}`);
+      // Renderizar plantilla — ahora devuelve { subject, html }
+      const rendered = this.renderTemplate(template, { ...(data || {}), locale: effectiveLocale });
+      const html = rendered.html;
+      const finalSubject = subject || rendered.subject;
+
+      console.log(`[📧 EMAIL] Enviando con modo: ${this.emailMode} · locale: ${effectiveLocale}`);
 
       // Seleccionar proveedor según el modo
       let result;
       switch (this.emailMode) {
         case 'console':
-          result = await this.sendViaConsole({ to, subject, template, data: safeData });
+          result = await this.sendViaConsole({ to, subject: finalSubject, template, data });
           break;
         
         case 'resend':
-          result = await this.sendViaResend({ to, subject, html });
+          result = await this.sendViaResend({ to, subject: finalSubject, html });
           break;
         
         case 'sendgrid':
-          result = await this.sendViaSendGrid({ to, subject, html });
+          result = await this.sendViaSendGrid({ to, subject: finalSubject, html });
           break;
         
         case 'smtp':
-          result = await this.sendViaSmtp({ to, subject, html });
+          result = await this.sendViaSmtp({ to, subject: finalSubject, html });
           break;
         
         case 'hybrid':
-          result = await this.sendViaHybrid({ to, subject, template, data: safeData, html });
+          result = await this.sendViaHybrid({ to, subject: finalSubject, template, data, html });
           break;
         
         default:
           // Auto-detectar mejor opción (priorizar APIs sobre SMTP)
           console.log('[📧 EMAIL] Modo auto-detectar. Resend:', !!this.resend, 'SendGrid:', !!this.sendgridApiKey, 'SMTP:', !!this.smtpTransporter);
-          if (this.resend) {
-            result = await this.sendViaResend({ to, subject, html });
-          } else if (this.sendgridApiKey) {
-            result = await this.sendViaSendGrid({ to, subject, html });
+          if (this.sendgridApiKey) {
+            result = await this.sendViaSendGrid({ to, subject: finalSubject, html });
+          } else if (this.resend) {
+            result = await this.sendViaResend({ to, subject: finalSubject, html });
           } else if (this.smtpTransporter) {
-            result = await this.sendViaSmtp({ to, subject, html });
+            result = await this.sendViaSmtp({ to, subject: finalSubject, html });
           } else {
-            result = await this.sendViaConsole({ to, subject, template, data: safeData });
+            result = await this.sendViaConsole({ to, subject: finalSubject, template, data });
           }
       }
       
@@ -165,16 +185,40 @@ class EmailService {
   }
 
   /**
-   * Sanitiza datos de plantilla para seguridad
+   * Renderiza una plantilla y devuelve { subject, html }.
+   * Mantiene compatibilidad: el caller puede sobreescribir subject.
    */
-  sanitizeTemplateData(template, data) {
-    if (template === 'verify_email') {
-      return {
-        name: data?.name || 'usuario',
-        verifyUrl: data?.verifyUrl || ''
-      };
+  renderTemplate(templateName, data = {}) {
+    const ctx = {
+      appName: this.appName,
+      frontendUrl: process.env.FRONTEND_URL || '',
+      locale: data.locale,
+    };
+
+    switch (templateName) {
+      case 'verify_email':
+        return verifyEmailTemplate(data, ctx);
+      case 'password_reset':
+        return passwordResetTemplate(data, ctx);
+      case 'password_reset_confirmed':
+        return passwordResetConfirmedTemplate(data, ctx);
+      case 'welcome':
+        return welcomeTemplate(data, ctx);
+      case 'notification':
+      case 'new_request':
+      case 'proposal_accepted':
+        return notificationTemplate(data, ctx);
+      default:
+        console.warn(`[📧] Plantilla '${templateName}' no encontrada, usando genérica`);
+        return genericTemplate({ ...data, templateName }, ctx);
     }
-    return data || {};
+  }
+
+  /**
+   * @deprecated Mantener para compatibilidad. Usar `renderTemplate` (devuelve subject+html).
+   */
+  getTemplateHtml(templateName, data = {}) {
+    return this.renderTemplate(templateName, data).html;
   }
 
   /**
@@ -246,23 +290,37 @@ class EmailService {
     const sgMail = (await import('@sendgrid/mail')).default;
     sgMail.setApiKey(this.sendgridApiKey);
 
+    // SendGrid requiere que el `from` esté verificado en Sender Authentication.
+    // Priorizamos SENDGRID_FROM_EMAIL sobre EMAIL_FROM (este último puede ser un alias
+    // genérico no verificado en SendGrid).
+    const fromEmail = process.env.SENDGRID_FROM_EMAIL || this.defaultFrom;
+    const fromName = process.env.SENDGRID_FROM_NAME || this.appName;
+
     const msg = {
       to,
-      from: this.defaultFrom,
+      from: { email: fromEmail, name: fromName },
       subject,
       html
     };
 
-    const [response] = await sgMail.send(msg);
-    
-    console.log(`[📧 SENDGRID] Email enviado a ${to} - Status: ${response.statusCode}`);
-    
-    return { 
-      success: true, 
-      messageId: response.headers['x-message-id'], 
-      via: 'sendgrid',
-      statusCode: response.statusCode
-    };
+    try {
+      const [response] = await sgMail.send(msg);
+      console.log(`[📧 SENDGRID] Email enviado a ${to} desde ${fromEmail} - Status: ${response.statusCode}`);
+      return {
+        success: true,
+        messageId: response.headers['x-message-id'],
+        via: 'sendgrid',
+        statusCode: response.statusCode
+      };
+    } catch (err) {
+      // SendGrid devuelve detalle del fallo en err.response.body
+      const detail = err?.response?.body || err?.response?.data;
+      if (detail) {
+        console.error('[📧 SENDGRID ERROR DETAIL]', JSON.stringify(detail, null, 2));
+      }
+      console.error(`[📧 SENDGRID] Intentando enviar desde: ${fromEmail} hacia: ${to}`);
+      throw err;
+    }
   }
 
   /**
@@ -332,239 +390,6 @@ class EmailService {
     // 4. Fallback a consola
     console.warn('⚠️ Todos los proveedores fallaron, usando consola...');
     return this.sendViaConsole({ to, subject, template, data });
-  }
-
-  /**
-   * Obtiene el HTML de una plantilla
-   */
-  getTemplateHtml(templateName, data) {
-    const templates = {
-      verify_email: this.getVerifyEmailTemplate(data),
-      password_reset: this.getPasswordResetTemplate(data),
-      password_reset_confirmed: this.getPasswordResetConfirmedTemplate(data),
-      new_request: this.getNewRequestTemplate(data),
-      proposal_accepted: this.getProposalAcceptedTemplate(data),
-      welcome: this.getWelcomeTemplate(data)
-    };
-
-    const template = templates[templateName];
-    if (!template) {
-      console.warn(`[📧] Plantilla '${templateName}' no encontrada, usando genérica`);
-      return this.getGenericTemplate({ ...data, templateName });
-    }
-
-    return template;
-  }
-
-  // ==================== PLANTILLAS ====================
-
-  getVerifyEmailTemplate(data) {
-    return `
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh;">
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding: 40px 20px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 500px; background: #ffffff; border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.15); overflow: hidden;">
-          <!-- Header -->
-          <tr>
-            <td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 30px; text-align: center;">
-              <h1 style="color: #ffffff; margin: 0; font-size: 28px; font-weight: 600;">📧 Verifica tu Email</h1>
-              <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0; font-size: 16px;">${this.appName}</p>
-            </td>
-          </tr>
-          <!-- Content -->
-          <tr>
-            <td style="padding: 40px 30px;">
-              <p style="color: #333; font-size: 18px; margin: 0 0 20px;">Hola <strong>${data.name}</strong>,</p>
-              <p style="color: #666; font-size: 16px; line-height: 1.6; margin: 0 0 30px;">
-                ¡Gracias por registrarte! Solo falta un paso para activar tu cuenta y empezar a disfrutar de todos nuestros servicios.
-              </p>
-              <!-- Button -->
-              <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
-                <tr>
-                  <td align="center" style="padding: 20px 0;">
-                    <a href="${data.verifyUrl}" style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #ffffff; text-decoration: none; padding: 16px 40px; border-radius: 50px; font-size: 16px; font-weight: 600; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);">
-                      ✓ Verificar mi correo
-                    </a>
-                  </td>
-                </tr>
-              </table>
-              <p style="color: #999; font-size: 14px; line-height: 1.6; margin: 30px 0 0;">
-                Si no creaste esta cuenta, puedes ignorar este mensaje.
-              </p>
-            </td>
-          </tr>
-          <!-- Footer -->
-          <tr>
-            <td style="background: #f8f9fa; padding: 25px 30px; border-top: 1px solid #eee;">
-              <p style="color: #888; font-size: 13px; margin: 0; text-align: center;">
-                ¿Problemas con el botón? Copia este enlace:<br>
-                <a href="${data.verifyUrl}" style="color: #667eea; word-break: break-all;">${data.verifyUrl}</a>
-              </p>
-            </td>
-          </tr>
-        </table>
-        <!-- Sub-footer -->
-        <p style="color: rgba(255,255,255,0.7); font-size: 12px; margin-top: 30px;">
-          © ${new Date().getFullYear()} ${this.appName}. Todos los derechos reservados.
-        </p>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`;
-  }
-
-  getPasswordResetTemplate(data) {
-    return `
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5;">
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding: 40px 20px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 500px; background: #ffffff; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08);">
-          <tr>
-            <td style="padding: 40px 30px; text-align: center;">
-              <div style="width: 60px; height: 60px; background: #fff3cd; border-radius: 50%; margin: 0 auto 20px; display: flex; align-items: center; justify-content: center;">
-                <span style="font-size: 30px;">🔐</span>
-              </div>
-              <h2 style="color: #333; margin: 0 0 20px;">Restablecer Contraseña</h2>
-              <p style="color: #666; font-size: 16px; line-height: 1.6;">
-                Hola ${data.name || 'usuario'},<br>
-                Recibimos una solicitud para restablecer tu contraseña.
-              </p>
-              <a href="${data.resetUrl}" style="display: inline-block; background: #ffc107; color: #333; text-decoration: none; padding: 14px 36px; border-radius: 8px; font-weight: 600; margin: 25px 0;">
-                Cambiar Contraseña
-              </a>
-              <p style="color: #999; font-size: 14px;">
-                Este enlace expira en ${data.expiresIn || '60 minutos'}.<br>
-                Si no solicitaste esto, ignora este mensaje.
-              </p>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`;
-  }
-
-  getPasswordResetConfirmedTemplate(data) {
-    return `
-<!DOCTYPE html>
-<html lang="es">
-<body style="font-family: Arial, sans-serif; background: #f5f5f5; padding: 40px;">
-  <div style="max-width: 480px; margin: auto; background: #fff; border-radius: 12px; padding: 40px; text-align: center;">
-    <div style="font-size: 50px; margin-bottom: 20px;">✅</div>
-    <h2 style="color: #28a745;">¡Contraseña Actualizada!</h2>
-    <p style="color: #666;">Hola ${data.name || 'usuario'},</p>
-    <p style="color: #666;">Tu contraseña se actualizó correctamente.</p>
-    <a href="${data.loginUrl || '/login'}" style="display: inline-block; background: #28a745; color: #fff; padding: 12px 30px; border-radius: 8px; text-decoration: none; margin-top: 20px;">
-      Iniciar Sesión
-    </a>
-  </div>
-</body>
-</html>`;
-  }
-
-  getNewRequestTemplate(data) {
-    const sr = data?.serviceRequest || {};
-    return `
-<!DOCTYPE html>
-<html lang="es">
-<body style="font-family: Arial, sans-serif; background: #f5f5f5; padding: 40px;">
-  <div style="max-width: 500px; margin: auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
-    <div style="background: #17a2b8; color: #fff; padding: 25px; text-align: center;">
-      <h2 style="margin: 0;">🔔 Nueva Solicitud</h2>
-    </div>
-    <div style="padding: 30px;">
-      <p>Hola <strong>${data.providerName || 'Proveedor'}</strong>,</p>
-      <p>Tienes una nueva solicitud de servicio:</p>
-      <div style="background: #f8f9fa; border-radius: 8px; padding: 20px; margin: 20px 0;">
-        <p style="margin: 5px 0;"><strong>📋 Servicio:</strong> ${sr.title || 'Sin título'}</p>
-        <p style="margin: 5px 0;"><strong>🏷️ Categoría:</strong> ${sr.category || 'Sin categoría'}</p>
-        <p style="margin: 5px 0;"><strong>📍 Ubicación:</strong> ${sr.location || 'Sin ubicación'}</p>
-      </div>
-      <a href="${data.actionUrl || '#'}" style="display: block; background: #17a2b8; color: #fff; text-align: center; padding: 14px; border-radius: 8px; text-decoration: none;">
-        Ver Solicitud
-      </a>
-    </div>
-  </div>
-</body>
-</html>`;
-  }
-
-  getProposalAcceptedTemplate(data) {
-    const sr = data?.serviceRequest || {};
-    return `
-<!DOCTYPE html>
-<html lang="es">
-<body style="font-family: Arial, sans-serif; background: #f5f5f5; padding: 40px;">
-  <div style="max-width: 500px; margin: auto; background: #fff; border-radius: 12px; overflow: hidden;">
-    <div style="background: linear-gradient(135deg, #28a745, #20c997); color: #fff; padding: 30px; text-align: center;">
-      <div style="font-size: 50px; margin-bottom: 10px;">🎉</div>
-      <h2 style="margin: 0;">¡Propuesta Aceptada!</h2>
-    </div>
-    <div style="padding: 30px;">
-      <p>Hola <strong>${data.providerName || 'Proveedor'}</strong>,</p>
-      <p>¡Excelentes noticias! El cliente aceptó tu propuesta:</p>
-      <div style="background: #d4edda; border-radius: 8px; padding: 20px; margin: 20px 0;">
-        <p style="margin: 5px 0;"><strong>📋</strong> ${sr.title || 'Sin título'}</p>
-        <p style="margin: 5px 0;"><strong>🏷️</strong> ${sr.category || 'Sin categoría'}</p>
-      </div>
-      <a href="${data.actionUrl || '#'}" style="display: block; background: #28a745; color: #fff; text-align: center; padding: 14px; border-radius: 8px; text-decoration: none;">
-        Ver Detalles
-      </a>
-    </div>
-  </div>
-</body>
-</html>`;
-  }
-
-  getWelcomeTemplate(data) {
-    return `
-<!DOCTYPE html>
-<html lang="es">
-<body style="font-family: Arial, sans-serif; background: #f5f5f5; padding: 40px;">
-  <div style="max-width: 500px; margin: auto; background: #fff; border-radius: 12px; text-align: center; padding: 40px;">
-    <div style="font-size: 60px; margin-bottom: 20px;">👋</div>
-    <h2 style="color: #333;">¡Bienvenido a ${this.appName}!</h2>
-    <p style="color: #666; font-size: 16px;">
-      Hola <strong>${data.name || 'usuario'}</strong>,<br>
-      Estamos felices de tenerte con nosotros.
-    </p>
-    <a href="${data.dashboardUrl || '/'}" style="display: inline-block; background: #667eea; color: #fff; padding: 14px 30px; border-radius: 8px; text-decoration: none; margin-top: 20px;">
-      Explorar
-    </a>
-  </div>
-</body>
-</html>`;
-  }
-
-  getGenericTemplate(data) {
-    return `
-<!DOCTYPE html>
-<html lang="es">
-<body style="font-family: Arial, sans-serif; padding: 40px;">
-  <div style="max-width: 500px; margin: auto; background: #fff; border-radius: 8px; padding: 30px; border: 1px solid #ddd;">
-    <h2 style="color: #333;">${this.appName}</h2>
-    <p style="color: #666;">${data.message || 'Tienes una notificación.'}</p>
-    ${data.actionUrl ? `<a href="${data.actionUrl}" style="color: #667eea;">Ver más</a>` : ''}
-  </div>
-</body>
-</html>`;
   }
 
   /**

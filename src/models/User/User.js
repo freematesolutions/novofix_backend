@@ -25,6 +25,10 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  emailVerificationTokenExpiresAt: {
+    type: Date,
+    default: null
+  },
   // role se maneja automáticamente por el discriminatorKey
   profile: {
     firstName: String,

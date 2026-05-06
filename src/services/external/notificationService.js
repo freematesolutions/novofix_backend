@@ -5,6 +5,121 @@ import Notification from '../../models/Communication/Notification.js';
 import User from '../../models/User/User.js';
 import ServiceRequest from '../../models/Service/ServiceRequest.js';
 
+/**
+ * Tipos de notificación que disparan email además del in-app/toast.
+ * Solo eventos críticos para evitar saturar al usuario. El envío respeta
+ * la preferencia user.preferences.notifications.email (default true).
+ * VERIFY_EMAIL se trata aparte: siempre se envía (crítico para activación).
+ */
+const EMAIL_NOTIFICATION_TYPES = new Set([
+  // Provider-side
+  'NEW_REQUEST',
+  'PROPOSAL_ACCEPTED',
+  'NEW_BOOKING_SCHEDULED',
+  'PAYMENT_RECEIVED',
+  // Client-side
+  'NEW_PROPOSAL',
+  'BOOKING_CONFIRMED',
+  'BOOKING_STATUS_UPDATE',
+  'NEW_MESSAGE',
+  'REVIEW_REQUEST',
+  'REVIEW_NUDGE',
+  'INVOICE_RECEIVED',
+]);
+
+/**
+ * Construye los "highlights" (pares label/value) que se muestran como bloque
+ * destacado en el email. Toma datos de notificationData.extraData según el tipo.
+ */
+function buildEmailHighlights(type, extraData = {}, locale = 'es') {
+  const isEs = locale !== 'en';
+  const L = (es, en) => (isEs ? es : en);
+  const fmtCurrency = (amount, currency = 'USD') => {
+    if (amount === undefined || amount === null || amount === '') return '';
+    const n = Number(amount);
+    if (Number.isNaN(n)) return String(amount);
+    return new Intl.NumberFormat(isEs ? 'es-ES' : 'en-US', { style: 'currency', currency }).format(n);
+  };
+  const fmtDate = (d) => {
+    if (!d) return '';
+    try {
+      return new Date(d).toLocaleDateString(isEs ? 'es-ES' : 'en-US', { day: 'numeric', month: 'long', year: 'numeric' });
+    } catch { return String(d); }
+  };
+
+  const h = [];
+  switch (type) {
+    case 'NEW_REQUEST':
+      if (extraData.title) h.push({ label: L('Solicitud', 'Request'), value: extraData.title });
+      if (extraData.category) h.push({ label: L('Categoría', 'Category'), value: extraData.category });
+      if (extraData.location) h.push({ label: L('Ubicación', 'Location'), value: extraData.location });
+      break;
+    case 'PROPOSAL_ACCEPTED':
+      if (extraData.serviceTitle || extraData.title) h.push({ label: L('Servicio', 'Service'), value: extraData.serviceTitle || extraData.title });
+      break;
+    case 'NEW_BOOKING_SCHEDULED':
+      if (extraData.clientName) h.push({ label: L('Cliente', 'Client'), value: extraData.clientName });
+      if (extraData.serviceTitle) h.push({ label: L('Servicio', 'Service'), value: extraData.serviceTitle });
+      if (extraData.scheduledDate) h.push({ label: L('Fecha', 'Date'), value: fmtDate(extraData.scheduledDate) });
+      if (extraData.scheduledTime) h.push({ label: L('Hora', 'Time'), value: extraData.scheduledTime });
+      break;
+    case 'PAYMENT_RECEIVED':
+      if (extraData.amount) h.push({ label: L('Monto', 'Amount'), value: fmtCurrency(extraData.amount, extraData.currency) });
+      break;
+    case 'NEW_PROPOSAL':
+      if (extraData.providerName) h.push({ label: L('Profesional', 'Professional'), value: extraData.providerName });
+      if (extraData.isRange && extraData.amountMin && extraData.amountMax) {
+        h.push({ label: L('Rango', 'Range'), value: `${fmtCurrency(extraData.amountMin)} – ${fmtCurrency(extraData.amountMax)}` });
+      } else if (extraData.amount) {
+        h.push({ label: L('Monto', 'Amount'), value: fmtCurrency(extraData.amount) });
+      }
+      break;
+    case 'BOOKING_CONFIRMED':
+      if (extraData.providerName) h.push({ label: L('Profesional', 'Professional'), value: extraData.providerName });
+      break;
+    case 'BOOKING_STATUS_UPDATE':
+      if (extraData.providerName) h.push({ label: L('Profesional', 'Professional'), value: extraData.providerName });
+      if (extraData.status) h.push({ label: L('Estado', 'Status'), value: extraData.status });
+      break;
+    case 'NEW_MESSAGE':
+      if (extraData.senderName) h.push({ label: L('De', 'From'), value: extraData.senderName });
+      break;
+    case 'REVIEW_REQUEST':
+    case 'REVIEW_NUDGE':
+      if (extraData.providerName) h.push({ label: L('Profesional', 'Professional'), value: extraData.providerName });
+      break;
+    case 'INVOICE_RECEIVED':
+      if (extraData.providerName) h.push({ label: L('Profesional', 'Professional'), value: extraData.providerName });
+      if (extraData.invoiceNumber) h.push({ label: L('Factura', 'Invoice'), value: `#${extraData.invoiceNumber}` });
+      if (extraData.amount) h.push({ label: L('Monto', 'Amount'), value: fmtCurrency(extraData.amount, extraData.currency) });
+      break;
+    default:
+      break;
+  }
+  return h;
+}
+
+/**
+ * Etiqueta localizada para el botón de acción del email según tipo.
+ */
+function emailActionLabel(type, locale = 'es') {
+  const isEs = locale !== 'en';
+  const map = {
+    NEW_REQUEST:           isEs ? 'Ver solicitud'      : 'View request',
+    PROPOSAL_ACCEPTED:     isEs ? 'Ver reserva'        : 'View booking',
+    NEW_BOOKING_SCHEDULED: isEs ? 'Ver calendario'     : 'View calendar',
+    PAYMENT_RECEIVED:      isEs ? 'Ver pago'           : 'View payment',
+    NEW_PROPOSAL:          isEs ? 'Ver propuesta'      : 'View proposal',
+    BOOKING_CONFIRMED:     isEs ? 'Ver reserva'        : 'View booking',
+    BOOKING_STATUS_UPDATE: isEs ? 'Ver reserva'        : 'View booking',
+    NEW_MESSAGE:           isEs ? 'Abrir chat'         : 'Open chat',
+    REVIEW_REQUEST:        isEs ? 'Dejar reseña'       : 'Leave review',
+    REVIEW_NUDGE:          isEs ? 'Dejar reseña'       : 'Leave review',
+    INVOICE_RECEIVED:      isEs ? 'Ver factura'        : 'View invoice',
+  };
+  return map[type] || (isEs ? 'Ver detalles' : 'View details');
+}
+
 class NotificationService {
   constructor() {
     this.channels = ['email', 'whatsapp', 'in_app'];
@@ -28,11 +143,21 @@ class NotificationService {
       const notificationData = this.buildNotificationData(provider, serviceRequest, type, data);
       const notificationPromises = [];
 
-      // VERIFY_EMAIL: SIEMPRE enviar email (crítico para activación de cuenta)
-      // Para otros tipos: respetar preferencias del usuario
+      // Decisión de envío de email:
+      // 1) VERIFY_EMAIL: SIEMPRE (crítico para activación).
+      // 2) Tipos en EMAIL_NOTIFICATION_TYPES: si user.preferences.notifications.email !== false.
+      // 3) Otros tipos con emailTemplate definido (legacy): si user.preferences.notifications.email !== false.
       const isVerificationEmail = type === 'VERIFY_EMAIL';
-      const shouldSendEmail = isVerificationEmail || 
-        (provider.preferences?.notifications?.email !== false && notificationData.emailTemplate);
+      const userEmailPref = provider.preferences?.notifications?.email !== false;
+      const inEmailSet = EMAIL_NOTIFICATION_TYPES.has(type);
+
+      // Si está en el set y aún no tenía emailTemplate, usar el genérico 'notification'.
+      if (inEmailSet && !notificationData.emailTemplate) {
+        notificationData.emailTemplate = 'notification';
+      }
+
+      const shouldSendEmail = isVerificationEmail ||
+        (userEmailPref && notificationData.emailTemplate && (inEmailSet || !!notificationData.emailTemplate));
 
       if (shouldSendEmail && notificationData.emailTemplate) {
         console.log(`[NotificationService] Enviando email ${type} a ${provider.email}`);
@@ -401,6 +526,18 @@ class NotificationService {
         };
       }
 
+      case 'NEW_MESSAGE':
+        return {
+          ...baseData,
+          subject: 'Nuevo mensaje 💬',
+          message: extra?.senderName
+            ? `${extra.senderName} te ha enviado un mensaje.`
+            : 'Tienes un nuevo mensaje.',
+          actionUrl: extra?.chatId ? `/mensajes?chat=${extra.chatId}` : '/mensajes',
+          priority: 'medium',
+          extraData: { senderName: extra?.senderName || '', chatId: extra?.chatId || '' }
+        };
+
       default:
         return baseData;
     }
@@ -409,6 +546,9 @@ class NotificationService {
   async sendEmailNotification(provider, notificationData) {
     try {
       let emailData;
+      const userLocale = (provider?.preferences?.language) || notificationData?.locale || 'es';
+      const recipientName = provider?.profile?.firstName || provider?.email || '';
+
       if (notificationData.emailTemplate === 'verify_email') {
         // Solo pasar los datos requeridos para verificación
         emailData = {
@@ -416,12 +556,39 @@ class NotificationService {
           subject: notificationData.subject || 'Verifica tu correo electrónico',
           template: 'verify_email',
           data: {
-            name: (provider && provider.profile && provider.profile.firstName) ? provider.profile.firstName : (provider?.email || ''),
-            verifyUrl: notificationData.actionUrl || ''
-          }
+            name: recipientName,
+            verifyUrl: notificationData.actionUrl || '',
+            expiresInHours: notificationData.expiresInHours || 24,
+            locale: userLocale
+          },
+          locale: userLocale
+        };
+      } else if (notificationData.emailTemplate === 'notification') {
+        // Plantilla genérica de notificación con highlights y botón CTA.
+        const type = notificationData.type;
+        const highlights = buildEmailHighlights(type, notificationData.extraData || {}, userLocale);
+        const actionUrl = notificationData.actionUrl
+          ? (notificationData.actionUrl.startsWith('http')
+              ? notificationData.actionUrl
+              : `${process.env.FRONTEND_URL || ''}${notificationData.actionUrl}`)
+          : '';
+        emailData = {
+          to: provider?.email || '',
+          subject: notificationData.subject || '',
+          template: 'notification',
+          data: {
+            name: recipientName,
+            title: notificationData.subject || '',
+            message: notificationData.message || '',
+            actionUrl,
+            actionLabel: emailActionLabel(type, userLocale),
+            highlights,
+            locale: userLocale
+          },
+          locale: userLocale
         };
       } else {
-        // Solo pasar serviceRequest si existe y es objeto
+        // Legacy: otras plantillas específicas (e.g. new_request, proposal_accepted)
         let safeServiceRequest = undefined;
         if (notificationData.serviceRequest && typeof notificationData.serviceRequest === 'object') {
           safeServiceRequest = notificationData.serviceRequest;
@@ -431,10 +598,17 @@ class NotificationService {
           subject: notificationData.subject || '',
           template: notificationData.emailTemplate,
           data: {
-            providerName: (provider && provider.profile && provider.profile.firstName) ? provider.profile.firstName : '',
+            name: recipientName,
+            providerName: recipientName,
             serviceRequest: safeServiceRequest,
-            actionUrl: notificationData.actionUrl ? `${process.env.FRONTEND_URL || ''}${notificationData.actionUrl}` : ''
-          }
+            actionUrl: notificationData.actionUrl ? `${process.env.FRONTEND_URL || ''}${notificationData.actionUrl}` : '',
+            locale: userLocale,
+            title: notificationData.subject || '',
+            message: notificationData.message || '',
+            actionLabel: emailActionLabel(notificationData.type, userLocale),
+            highlights: buildEmailHighlights(notificationData.type, notificationData.extraData || {}, userLocale)
+          },
+          locale: userLocale
         };
       }
 
@@ -544,9 +718,12 @@ class NotificationService {
         priority
       });
 
-      // Enviar email de verificación si corresponde
+      const channels = ['in_app'];
+      const userEmailPref = client.preferences?.notifications?.email !== false;
+      const userLocale = client.preferences?.language || data.locale || 'es';
+
+      // 1) VERIFY_EMAIL: SIEMPRE enviar (crítico para activación)
       if (type === 'VERIFY_EMAIL') {
-        // Usar plantilla simple para verificación, solo con los datos requeridos
         const verifyUrl = data.verifyUrl || notificationData.actionUrl || '/verificar-email';
         const emailData = {
           to: client.email,
@@ -554,21 +731,57 @@ class NotificationService {
           template: 'verify_email',
           data: {
             name: client.profile?.firstName || client.email,
-            verifyUrl
-          }
+            verifyUrl,
+            expiresInHours: data.expiresInHours || 24,
+            locale: userLocale
+          },
+          locale: userLocale
         };
         console.log(`[NotificationService] Enviando VERIFY_EMAIL a cliente: ${client.email}`);
         console.log(`[NotificationService] verifyUrl: ${verifyUrl}`);
         try {
           const result = await resendService.sendEmail(emailData);
           console.log(`[NotificationService] Email enviado exitosamente:`, result);
+          channels.push('email');
         } catch (err) {
           console.error('NotificationService - sendClientNotification VERIFY_EMAIL error:', err);
-          console.error('NotificationService - Email data:', JSON.stringify(emailData, null, 2));
+        }
+      }
+      // 2) Tipos críticos del set: respetar preferencia del usuario
+      else if (EMAIL_NOTIFICATION_TYPES.has(type) && userEmailPref) {
+        const recipientName = client.profile?.firstName || client.email || '';
+        const highlights = buildEmailHighlights(type, notificationData.extraData || data || {}, userLocale);
+        const actionUrl = notificationData.actionUrl
+          ? (notificationData.actionUrl.startsWith('http')
+              ? notificationData.actionUrl
+              : `${process.env.FRONTEND_URL || ''}${notificationData.actionUrl}`)
+          : '';
+        const emailData = {
+          to: client.email,
+          subject: notificationData.subject || '',
+          template: 'notification',
+          data: {
+            name: recipientName,
+            title: notificationData.subject || '',
+            message: notificationData.message || '',
+            actionUrl,
+            actionLabel: emailActionLabel(type, userLocale),
+            highlights,
+            locale: userLocale,
+            type
+          },
+          locale: userLocale
+        };
+        console.log(`[NotificationService] Enviando email ${type} a cliente: ${client.email}`);
+        try {
+          await resendService.sendEmail(emailData);
+          channels.push('email');
+        } catch (err) {
+          console.error(`NotificationService - sendClientNotification ${type} email error:`, err);
         }
       }
 
-      return { success: true, channels: ['in_app', ...(type === 'VERIFY_EMAIL' ? ['email'] : [])], message: 'Client notification created' };
+      return { success: true, channels, message: 'Client notification created' };
     } catch (error) {
       console.error('NotificationService - sendClientNotification error:', error);
       throw error;

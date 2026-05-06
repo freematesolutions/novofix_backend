@@ -4,6 +4,7 @@ import { messageSchema, typingSchema, chatActionSchema } from '../schemas/messag
 import Chat from '../../models/Communication/Chat.js';
 import Message from '../../models/Communication/Message.js';
 import emitter from '../services/emitterService.js';
+import notificationService from '../../services/external/notificationService.js';
 
 export class ChatHandler {
   constructor(io) {
@@ -221,6 +222,55 @@ export class ChatHandler {
             chatType: chat.type,
             relatedTo: chat.relatedTo
           });
+
+          // Disparar notificación persistente (in-app + email según preferencia).
+          // Solo cuando el receptor no está dentro de la conversación, así evitamos
+          // saturarlo mientras chatean en vivo.
+          try {
+            const recipientType = senderIsClient ? 'Provider' : 'Client';
+            const senderName =
+              socket.userData?.profile?.firstName ||
+              socket.userData?.profile?.businessName ||
+              socket.userData?.email ||
+              '';
+            const previewText =
+              (typeof content === 'string' && content) ||
+              content?.text ||
+              '';
+            const notifyData = {
+              senderName,
+              chatId: String(chatId),
+              messagePreview: typeof previewText === 'string' ? previewText.slice(0, 120) : ''
+            };
+
+            // Intento principal según el rol detectado en el chat. Si falla con
+            // "not found" (chat con participantes hu\u00e9rfanos / fallback senderModel),
+            // probamos el otro tipo antes de rendirnos.
+            const tryClient = () =>
+              notificationService.sendClientNotification({
+                clientId: recipientId, type: 'NEW_MESSAGE', priority: 'medium', data: notifyData
+              });
+            const tryProvider = () =>
+              notificationService.sendProviderNotification({
+                providerId: recipientId, type: 'NEW_MESSAGE', priority: 'medium', data: notifyData
+              });
+
+            const primary = recipientType === 'Client' ? tryClient : tryProvider;
+            const fallback = recipientType === 'Client' ? tryProvider : tryClient;
+
+            primary().catch(err => {
+              const msg = err?.message || '';
+              if (/not found/i.test(msg)) {
+                console.warn(`[NEW_MESSAGE] ${recipientType} ${recipientId} not found, retrying as opposite role`);
+                return fallback().catch(err2 =>
+                  console.error('NEW_MESSAGE fallback notification error:', err2?.message)
+                );
+              }
+              console.error('NEW_MESSAGE notification error:', msg);
+            });
+          } catch (err) {
+            console.error('NEW_MESSAGE notification dispatch error:', err?.message);
+          }
         } else {
           console.log(`📡 Recipient ${recipientId} already in chat room, skipping user room emission to avoid duplicate`);
         }

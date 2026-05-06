@@ -1,5 +1,6 @@
 // routes/auth/auth.routes.js
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import authController from '../../controllers/authController.js';
 import {
   authenticateJWT,
@@ -23,13 +24,31 @@ import { getEmailService } from '../../services/external/email/emailService.js';
 
 const router = express.Router();
 
-// Rutas públicas de autenticación
+// Rate limit espec\u00edfico para reenv\u00edo de email de verificaci\u00f3n
+// Previene abuso: m\u00e1ximo 5 reintentos cada 15 min por IP+email
+const resendVerificationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const email = String(req.body?.email || '').toLowerCase().trim();
+    return `${req.ip}:${email}`;
+  },
+  message: {
+    success: false,
+    code: 'RATE_LIMITED',
+    message: 'Too many verification email requests. Please wait a few minutes and try again.'
+  }
+});
+
+// Rutas p\u00fablicas de autenticaci\u00f3n
 router.get('/check-email', authController.checkEmailAvailability);
 router.post('/register/client', attachGuest, authController.registerClient);
 router.post('/register/provider', attachGuest, authController.registerProvider);
 router.post('/login', authController.login);
-// Reenviar email de verificación (requiere token provisional, no requiere email verificado)
-router.post('/resend-verification', authenticateJWT, authController.resendVerificationEmail);
+// Reenviar email de verificaci\u00f3n: p\u00fablico + rate limited (mejor UX para usuarios reci\u00e9n registrados sin token)
+router.post('/resend-verification', resendVerificationLimiter, authController.resendVerificationEmail);
 // Refresh token -> entrega nuevo access token y renueva refresh (cookie)
 router.post('/refresh', refreshToken, (req, res) => {
   // Setear nuevo refresh token en cookie httpOnly para seguridad

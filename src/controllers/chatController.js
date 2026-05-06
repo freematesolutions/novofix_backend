@@ -9,6 +9,7 @@ import Client from '../models/User/Client.js';
 import Provider from '../models/User/Provider.js';
 import { getIO } from '../config/socket.js';
 import emitter from '../websocket/services/emitterService.js';
+import notificationService from '../services/external/notificationService.js';
 
 class ChatController {
   /**
@@ -515,6 +516,53 @@ class ChatController {
         }
       };
       this.emitNewMessage(chat, messageWithSender);
+
+      // Disparar notificación persistente (in-app + email según preferencia)
+      // SOLO si el receptor NO está actualmente en la sala del chat (offline o con la
+      // conversación cerrada). Así evitamos saturar mientras chatean en vivo.
+      try {
+        const recipientId = senderIsClient ? chatProviderId : chatClientId;
+        const recipientType = senderIsClient ? 'Provider' : 'Client';
+        if (recipientId) {
+          const io = getIO();
+          const chatRoomName = `chat_${chatId}`;
+          const socketsInRoom = await io.in(chatRoomName).fetchSockets();
+          const usersInRoom = new Set(socketsInRoom.map(s => s.userId));
+          const recipientIsActive = usersInRoom.has(String(recipientId));
+
+          if (!recipientIsActive) {
+            const senderName =
+              req.user.profile?.firstName ||
+              req.user.profile?.businessName ||
+              req.user.email ||
+              '';
+            const notifyData = {
+              senderName,
+              chatId: String(chatId),
+              messagePreview: typeof text === 'string' ? text.slice(0, 120) : ''
+            };
+            if (recipientType === 'Client') {
+              notificationService.sendClientNotification({
+                clientId: recipientId,
+                type: 'NEW_MESSAGE',
+                priority: 'medium',
+                data: notifyData
+              }).catch(err => console.error('NEW_MESSAGE client notification error:', err?.message));
+            } else {
+              notificationService.sendProviderNotification({
+                providerId: recipientId,
+                type: 'NEW_MESSAGE',
+                priority: 'medium',
+                data: notifyData
+              }).catch(err => console.error('NEW_MESSAGE provider notification error:', err?.message));
+            }
+          } else {
+            console.log(`[Chat] Recipient ${recipientId} is in room — skipping persistent notification`);
+          }
+        }
+      } catch (err) {
+        console.error('NEW_MESSAGE notification dispatch error:', err?.message);
+      }
 
       res.status(201).json({
         success: true,

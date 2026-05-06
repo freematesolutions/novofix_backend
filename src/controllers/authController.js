@@ -41,23 +41,21 @@ class AuthController {
         });
       }
 
-      // Generar token de verificación de email
+      // Generar token de verificación de email con expiración (24h)
       const emailVerificationToken = crypto.randomBytes(32).toString('hex');
+      const TOKEN_TTL_HOURS = parseInt(process.env.EMAIL_VERIFICATION_TTL_HOURS || '24', 10);
+      const emailVerificationTokenExpiresAt = new Date(Date.now() + TOKEN_TTL_HOURS * 60 * 60 * 1000);
 
-      // Verificar si está habilitado el modo demo (para presentaciones)
-      // En modo demo: NO verificamos automáticamente, pero mostramos el enlace en la UI
-      const demoMode = process.env.AUTO_VERIFY_EMAIL === 'true';
-      
-      // Debug log para desarrollo
+      // Modo demo legacy (solo activable explícitamente en NO-producción)
+      const demoMode = process.env.AUTO_VERIFY_EMAIL === 'true' && process.env.NODE_ENV !== 'production';
+
       console.log('[AuthController] registerClient:', {
         demoMode,
-        AUTO_VERIFY_EMAIL: process.env.AUTO_VERIFY_EMAIL,
         NODE_ENV: process.env.NODE_ENV,
         EMAIL_MODE: process.env.EMAIL_MODE
       });
 
       // Crear nuevo cliente SIEMPRE en estado pendiente de verificación
-      // (tanto en modo real como en modo demo)
       const client = new Client({
         email,
         password,
@@ -68,9 +66,13 @@ class AuthController {
         },
         guestSessionId: guestSessionId || req.session?.sessionId,
         roles: ['client'],
-        isActive: false, // Siempre inactivo hasta verificar
-        emailVerified: false, // Siempre pendiente hasta verificar
-        emailVerificationToken
+        isActive: false,
+        emailVerified: false,
+        emailVerificationToken,
+        emailVerificationTokenExpiresAt,
+        preferences: {
+          language: req.body.locale || req.body.language || 'es'
+        }
       });
 
       await client.save();
@@ -78,20 +80,24 @@ class AuthController {
       // URL de verificación
       const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verificar-email?token=${emailVerificationToken}`;
 
-      // En modo demo: NO enviamos email real, solo mostraremos el enlace en la UI
-      // En modo real: intentamos enviar el email
+      // Enviar email real de verificación (siempre, salvo modo demo legacy)
       if (!demoMode) {
         try {
           await notificationService.sendClientNotification({
             clientId: client._id,
             type: 'VERIFY_EMAIL',
-            data: { firstName: client.profile?.firstName, verifyUrl }
+            data: {
+              firstName: client.profile?.firstName,
+              verifyUrl,
+              expiresInHours: TOKEN_TTL_HOURS,
+              locale: client.preferences?.language || 'es'
+            }
           });
         } catch (e) {
           console.warn('Verification email failed:', e?.message);
         }
       } else {
-        console.log(`[DEMO MODE] Cliente ${email} - Enlace de verificación disponible en UI`);
+        console.log(`[DEMO MODE] Cliente ${email} - Enlace de verificación disponible en UI (no producción)`);
       }
 
       // Manejar merge de datos guest si existe sesión
@@ -146,10 +152,9 @@ class AuthController {
       }
 
       // Respuesta unificada: siempre pendiente de verificación
-      // La diferencia es que en modo demo incluimos la URL de verificación
       res.status(201).json({
         success: true,
-        message: demoMode 
+        message: demoMode
           ? 'Registro exitoso. Usa el enlace de verificación para activar tu cuenta (modo demo).'
           : 'Client registered successfully. Please verify your email.',
         data: {
@@ -163,15 +168,8 @@ class AuthController {
             emailVerified: client.emailVerified
           },
           pendingVerification: true,
-          // En modo demo: incluir URL de verificación para mostrar en la UI
-          // En desarrollo: también incluir para facilitar testing
-          ...(demoMode && { verificationUrl: verifyUrl, demoMode: true }),
-          ...(process.env.NODE_ENV !== 'production' && !demoMode && {
-            _dev: {
-              verifyUrl,
-              hint: 'Usa esta URL para verificar el email en desarrollo'
-            }
-          })
+          // Solo en modo demo (NO producción): exponer URL para auto-verificación local
+          ...(demoMode && { verificationUrl: verifyUrl, demoMode: true })
         }
       });
 
@@ -288,12 +286,13 @@ class AuthController {
       await subscriptionService.ensurePlansSeeded();
       const freePlan = await subscriptionService.getPlan('free');
 
-      // Generar token de verificación de email
+      // Generar token de verificación de email con expiración (24h)
       const emailVerificationToken = crypto.randomBytes(32).toString('hex');
+      const TOKEN_TTL_HOURS = parseInt(process.env.EMAIL_VERIFICATION_TTL_HOURS || '24', 10);
+      const emailVerificationTokenExpiresAt = new Date(Date.now() + TOKEN_TTL_HOURS * 60 * 60 * 1000);
 
-      // Verificar si está habilitado el modo demo (para presentaciones)
-      // En modo demo: NO verificamos automáticamente, pero mostramos el enlace en la UI
-      const demoMode = process.env.AUTO_VERIFY_EMAIL === 'true';
+      // Modo demo legacy (solo activable explícitamente en NO-producción)
+      const demoMode = process.env.AUTO_VERIFY_EMAIL === 'true' && process.env.NODE_ENV !== 'production';
 
       // Crear proveedor SIEMPRE en estado pendiente de verificación
       const provider = new Provider({
@@ -336,9 +335,13 @@ class AuthController {
           commissionRate: freePlan.features.commissionRate
         },
         roles: ['client', 'provider'],
-        isActive: false, // Siempre inactivo hasta verificar
-        emailVerified: false, // Siempre pendiente hasta verificar
-        emailVerificationToken
+        isActive: false,
+        emailVerified: false,
+        emailVerificationToken,
+        emailVerificationTokenExpiresAt,
+        preferences: {
+          language: req.body.locale || req.body.language || 'es'
+        }
       });
 
       await provider.save();
@@ -346,20 +349,24 @@ class AuthController {
       // URL de verificación
       const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verificar-email?token=${emailVerificationToken}`;
 
-      // En modo demo: NO enviamos email real, solo mostraremos el enlace en la UI
-      // En modo real: intentamos enviar el email
+      // Enviar email real de verificación (siempre, salvo modo demo legacy)
       if (!demoMode) {
         try {
           await notificationService.sendProviderNotification({
             providerId: provider._id,
             type: 'VERIFY_EMAIL',
-            data: { businessName, verifyUrl }
+            data: {
+              businessName,
+              verifyUrl,
+              expiresInHours: TOKEN_TTL_HOURS,
+              locale: provider.preferences?.language || 'es'
+            }
           });
         } catch (e) {
           console.warn('Verification email failed:', e?.message);
         }
       } else {
-        console.log(`[DEMO MODE] Proveedor ${email} - Enlace de verificación disponible en UI`);
+        console.log(`[DEMO MODE] Proveedor ${email} - Enlace de verificación disponible en UI (no producción)`);
       }
 
       // Aplicar código de referido si aplica
@@ -435,15 +442,8 @@ class AuthController {
             emailVerified: provider.emailVerified
           },
           pendingVerification: true,
-          // En modo demo: incluir URL de verificación para mostrar en la UI
-          // En desarrollo: también incluir para facilitar testing
-          ...(demoMode && { verificationUrl: verifyUrl, demoMode: true }),
-          ...(process.env.NODE_ENV !== 'production' && !demoMode && {
-            _dev: {
-              verifyUrl,
-              hint: 'Usa esta URL para verificar el email en desarrollo'
-            }
-          })
+          // Solo en modo demo (NO producción): exponer URL para auto-verificación local
+          ...(demoMode && { verificationUrl: verifyUrl, demoMode: true })
         }
       });
     } catch (error) {
@@ -483,42 +483,47 @@ class AuthController {
       }
 
       if (user.emailVerified) {
-        return res.status(400).json({ 
-          success: false, 
-          message: 'Email already verified' 
+        return res.status(400).json({
+          success: false,
+          message: 'Email already verified'
         });
       }
 
-      // Generar nuevo token si no existe
-      if (!user.emailVerificationToken) {
-        user.emailVerificationToken = crypto.randomBytes(32).toString('hex');
-        await user.save();
-      }
+      // SIEMPRE rotar token al reenviar (mejor seguridad)
+      const TOKEN_TTL_HOURS = parseInt(process.env.EMAIL_VERIFICATION_TTL_HOURS || '24', 10);
+      user.emailVerificationToken = crypto.randomBytes(32).toString('hex');
+      user.emailVerificationTokenExpiresAt = new Date(Date.now() + TOKEN_TTL_HOURS * 60 * 60 * 1000);
+      await user.save();
 
       // Generar URL de verificación
       const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verificar-email?token=${user.emailVerificationToken}`;
-      
+      const locale = user.preferences?.language || 'es';
+
       // Enviar email usando notificationService
       try {
         const userRoles = Array.isArray(user.roles) ? user.roles : [user.role];
         const isProvider = userRoles.includes('provider');
-        
+
         if (isProvider) {
           await notificationService.sendProviderNotification({
             providerId: user._id,
             type: 'VERIFY_EMAIL',
-            data: { 
+            data: {
               businessName: user.providerProfile?.businessName || user.profile?.firstName,
-              verifyUrl 
+              verifyUrl,
+              expiresInHours: TOKEN_TTL_HOURS,
+              locale
             }
           });
         } else {
           await notificationService.sendClientNotification({
             clientId: user._id,
             type: 'VERIFY_EMAIL',
-            data: { 
+            data: {
               firstName: user.profile?.firstName || 'Usuario',
-              verifyUrl 
+              verifyUrl,
+              expiresInHours: TOKEN_TTL_HOURS,
+              locale
             }
           });
         }
@@ -558,24 +563,27 @@ class AuthController {
       const user = await User.findOne({ emailVerificationToken: token });
 
       if (!user) {
-        return res.status(404).json({ 
-          success: false, 
-          message: 'Invalid or expired token' 
+        return res.status(404).json({
+          success: false,
+          code: 'TOKEN_INVALID',
+          message: 'Invalid or expired token'
         });
       }
 
-      // Verificar que el token coincida exactamente
-      if (user.emailVerificationToken !== token) {
-        return res.status(400).json({ 
-          success: false, 
-          message: 'Token does not match' 
+      // Validar expiración del token
+      if (user.emailVerificationTokenExpiresAt && user.emailVerificationTokenExpiresAt < new Date()) {
+        return res.status(410).json({
+          success: false,
+          code: 'TOKEN_EXPIRED',
+          message: 'Verification link has expired. Please request a new one.'
         });
       }
 
       // Activar la cuenta del usuario
       user.isActive = true;
       user.emailVerified = true;
-      user.emailVerificationToken = null; // Limpiar token usado
+      user.emailVerificationToken = null;
+      user.emailVerificationTokenExpiresAt = null;
       await user.save();
 
       // Generar tokens de acceso
@@ -1122,14 +1130,16 @@ class AuthController {
       await PasswordResetToken.deleteMany({ user: uid, _id: { $ne: record._id } });
 
       try {
+        const userLocale = user.preferences?.language || 'es';
         await resendService.sendEmail({
           to: user.email,
-          subject: 'Tu contraseña fue actualizada',
           template: 'password_reset_confirmed',
           data: {
             name: user.profile?.firstName || user.email,
-            loginUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/login`
-          }
+            loginUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/login`,
+            locale: userLocale
+          },
+          locale: userLocale
         });
       } catch (e) {
         console.warn('Password reset confirmation email failed:', e?.message);

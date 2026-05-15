@@ -55,7 +55,7 @@ router.post('/refresh', refreshToken, (req, res) => {
   res.cookie('refresh_token', req.tokenRefresh.refreshToken, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
     maxAge: 90 * 24 * 60 * 60 * 1000 // 90 días
   });
   return res.json({
@@ -67,7 +67,7 @@ router.post('/refresh', refreshToken, (req, res) => {
 
 // Logout -> limpiar cookie de refresh
 router.post('/logout', (req, res) => {
-  res.clearCookie('refresh_token', { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production' });
+  res.clearCookie('refresh_token', { httpOnly: true, sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', secure: process.env.NODE_ENV === 'production' });
   return res.json({ success: true, message: 'Logged out' });
 });
 // Password reset

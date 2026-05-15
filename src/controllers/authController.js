@@ -598,7 +598,7 @@ class AuthController {
       res.cookie('refresh_token', refreshToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
         maxAge: 90 * 24 * 60 * 60 * 1000 // 90 días
       });
 
@@ -781,7 +781,7 @@ class AuthController {
       res.cookie('refresh_token', refresh, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
         maxAge: 90 * 24 * 60 * 60 * 1000
       });
 
@@ -991,7 +991,7 @@ class AuthController {
       res.cookie('refresh_token', refresh, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
         maxAge: 90 * 24 * 60 * 60 * 1000
       });
 

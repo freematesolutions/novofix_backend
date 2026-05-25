@@ -71,10 +71,12 @@ const ensureSession = async (req, res, next) => {
       }
 
       // Setear cookie de sesión
+      // En producción: SameSite=None + Secure (cross-site frontend Vercel ↔ backend Render).
+      // En desarrollo: Lax (mismo origin localhost, sin HTTPS).
       res.cookie('sessionId', sessionId, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
         maxAge: 30 * 24 * 60 * 60 * 1000 // 30 días
       });
     } else {
@@ -106,7 +108,7 @@ const ensureSession = async (req, res, next) => {
         res.cookie('sessionId', sessionId, {
           httpOnly: true,
           secure: process.env.NODE_ENV === 'production',
-          sameSite: 'lax',
+          sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
           maxAge: 30 * 24 * 60 * 60 * 1000
         });
       } else {

@@ -309,6 +309,15 @@ class GuestController {
 
       console.log(`✅ Returning ${providersWithReviews.length} featured providers`);
 
+      // ─── Cache HTTP (endpoint público, mismo resultado para todos los guests) ───
+      // s-maxage=60   → CDN sirve cache durante 60s
+      // stale-while-revalidate=300 → puede servir cache obsoleto hasta 5min
+      //                              mientras revalida en background.
+      // Esto multiplica el efecto de Redis: el segundo visitante no toca
+      // ni siquiera Render, responde el edge cache.
+      res.set('Cache-Control', 'public, max-age=30, s-maxage=60, stale-while-revalidate=300');
+      res.set('Vary', 'Accept-Encoding, Accept-Language');
+
       res.json({
         success: true,
         data: { 
@@ -1246,6 +1255,12 @@ class GuestController {
       });
 
       console.log(`🎬 Returning ${reels.length} reels from ${providersWithVideos.length} providers`);
+
+      // ─── Cache HTTP (endpoint público) ───
+      // Los reels cambian raramente (cuando un proveedor sube/quita video).
+      // TTL más alto que featured providers.
+      res.set('Cache-Control', 'public, max-age=60, s-maxage=120, stale-while-revalidate=600');
+      res.set('Vary', 'Accept-Encoding, Accept-Language');
 
       res.json({
         success: true,

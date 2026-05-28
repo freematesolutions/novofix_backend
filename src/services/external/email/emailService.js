@@ -52,13 +52,78 @@ class EmailService {
     }
 
     // Configurar email por defecto
+    // NOTA: el dominio canónico autenticado en SendGrid es novofixpro.com.
+    // Si EMAIL_FROM/SENDGRID_FROM_EMAIL no están definidos, se usa noreply@novofixpro.com
+    // para alinear con DKIM y evitar fallos DMARC en Gmail/Outlook.
     this.defaultFrom = process.env.EMAIL_FROM || 
                        process.env.RESEND_FROM_EMAIL ||
                        process.env.SENDGRID_FROM_EMAIL ||
                        process.env.GMAIL_USER || 
-                       'noreply@novofix.com';
-    
+                       'noreply@novofixpro.com';
+
+    // Reply-To: buzón atendido al que responden los usuarios (si no se define,
+    // se omite la cabecera y los clientes responderán al FROM por defecto).
+    this.replyTo = process.env.EMAIL_REPLY_TO || null;
+
+    // URL pública del frontend (para enlace de baja en List-Unsubscribe)
+    this.frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
+
     this.appName = process.env.APP_NAME || 'NovoFix';
+  }
+
+  /**
+   * Convierte el HTML del email en una versión texto plano legible.
+   * Importante para deliverability: Gmail/Outlook penalizan mensajes
+   * que solo viajan en HTML sin alternativa de texto.
+   */
+  htmlToPlainText(html = '') {
+    if (!html) return '';
+    return String(html)
+      // Reemplazar saltos lógicos por \n antes de stripear tags
+      .replace(/<\s*br\s*\/?>/gi, '\n')
+      .replace(/<\/(p|div|h[1-6]|li|tr|table)>/gi, '\n')
+      // Preservar el texto del enlace seguido de la URL entre paréntesis
+      .replace(/<a\s+[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi, (_m, href, text) => {
+        const clean = text.replace(/<[^>]+>/g, '').trim();
+        return clean && clean !== href ? `${clean} (${href})` : href;
+      })
+      // Eliminar el resto de etiquetas HTML
+      .replace(/<[^>]+>/g, '')
+      // Decodificar entidades comunes
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      // Colapsar espacios y líneas en blanco excesivas
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  /**
+   * Determina si una plantilla es de tipo "notificación" (marketing-like)
+   * y por tanto debe llevar cabecera List-Unsubscribe.
+   * Los emails transaccionales críticos (verify_email, password_reset)
+   * NO deben llevar unsubscribe porque son requeridos para usar el servicio.
+   */
+  isUnsubscribable(template) {
+    return ['notification', 'new_request', 'proposal_accepted', 'welcome'].includes(template);
+  }
+
+  /**
+   * Construye cabeceras List-Unsubscribe (RFC 2369 + RFC 8058).
+   * Requeridas por Gmail/Yahoo desde 2024 para senders con buen volumen.
+   */
+  buildUnsubscribeHeaders(to) {
+    if (!this.frontendUrl) return null;
+    const encoded = encodeURIComponent(to || '');
+    const url = `${this.frontendUrl}/unsubscribe?email=${encoded}`;
+    return {
+      'List-Unsubscribe': `<${url}>`,
+      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click'
+    };
   }
 
   /**
@@ -143,7 +208,7 @@ class EmailService {
           break;
         
         case 'sendgrid':
-          result = await this.sendViaSendGrid({ to, subject: finalSubject, html });
+          result = await this.sendViaSendGrid({ to, subject: finalSubject, html, template });
           break;
         
         case 'smtp':
@@ -158,7 +223,7 @@ class EmailService {
           // Auto-detectar mejor opción (priorizar APIs sobre SMTP)
           console.log('[📧 EMAIL] Modo auto-detectar. Resend:', !!this.resend, 'SendGrid:', !!this.sendgridApiKey, 'SMTP:', !!this.smtpTransporter);
           if (this.sendgridApiKey) {
-            result = await this.sendViaSendGrid({ to, subject: finalSubject, html });
+            result = await this.sendViaSendGrid({ to, subject: finalSubject, html, template });
           } else if (this.resend) {
             result = await this.sendViaResend({ to, subject: finalSubject, html });
           } else if (this.smtpTransporter) {
@@ -282,7 +347,7 @@ class EmailService {
    * Envío via SendGrid API
    * ✅ Plan gratuito 100 emails/día, funciona en Render
    */
-  async sendViaSendGrid({ to, subject, html }) {
+  async sendViaSendGrid({ to, subject, html, template }) {
     if (!this.sendgridApiKey) {
       throw new Error('SendGrid no configurado. Define SENDGRID_API_KEY en .env');
     }
@@ -296,12 +361,51 @@ class EmailService {
     const fromEmail = process.env.SENDGRID_FROM_EMAIL || this.defaultFrom;
     const fromName = process.env.SENDGRID_FROM_NAME || this.appName;
 
+    // ─── Mejoras antispam (deliverability) ───
+    // 1) Versión texto plano: Gmail/Outlook penalizan mensajes solo-HTML.
+    const text = this.htmlToPlainText(html);
+
+    // 2) Reply-To opcional (buzón atendido). Si no está definido, se omite.
+    const replyTo = this.replyTo || process.env.SENDGRID_REPLY_TO || null;
+
+    // 3) List-Unsubscribe solo en emails no-transaccionales (notificaciones).
+    //    Verificación de cuenta y reset de password NO llevan unsubscribe.
+    const unsubHeaders = this.isUnsubscribable(template)
+      ? this.buildUnsubscribeHeaders(to)
+      : null;
+
+    // 4) Tracking: SendGrid reescribe los enlaces para track clicks → los
+    //    filtros antispam suelen marcar esos dominios como sospechosos.
+    //    Se desactiva el click-tracking en emails transaccionales. Open-tracking
+    //    se mantiene (no afecta a la entregabilidad pero da analítica básica).
+    const trackingSettings = {
+      clickTracking: { enable: false, enableText: false },
+      openTracking: { enable: true },
+      subscriptionTracking: { enable: false }
+    };
+
     const msg = {
       to,
       from: { email: fromEmail, name: fromName },
       subject,
-      html
+      text,
+      html,
+      trackingSettings,
+      mailSettings: {
+        // Bypass de listas de supresión solo para emails críticos
+        // (verificación / reset). En notificaciones se respeta la lista.
+        bypassListManagement: { enable: !this.isUnsubscribable(template) }
+      }
     };
+
+    if (replyTo) {
+      msg.replyTo = replyTo;
+    }
+    if (unsubHeaders) {
+      msg.headers = { ...(msg.headers || {}), ...unsubHeaders };
+      // ASM/grupos de unsubscribe en SendGrid se podrían añadir aquí si se
+      // configuran en el dashboard (asm: { groupId, groupsToDisplay }).
+    }
 
     try {
       const [response] = await sgMail.send(msg);
@@ -372,7 +476,7 @@ class EmailService {
     // 2. Intentar SendGrid
     if (this.sendgridApiKey) {
       try {
-        return await this.sendViaSendGrid({ to, subject, html });
+        return await this.sendViaSendGrid({ to, subject, html, template });
       } catch (error) {
         console.warn(`⚠️ SendGrid falló: ${error.message}`);
       }

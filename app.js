@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import compression from 'compression';
 import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
@@ -58,6 +59,21 @@ app.use(cors({
 // Stripe needs the raw body for signature verification and should NOT
 // go through session/JWT middleware (server-to-server call).
 app.use('/webhooks/stripe', stripeWebhookRoutes);
+
+// ─── Compresión HTTP (gzip) ───
+// Se monta DESPUÉS del webhook de Stripe para no comprimir su raw body
+// (la firma se calcula sobre los bytes originales).
+// Reduce ~70% el tamaño de respuestas JSON grandes (featured providers,
+// reels, listados), mejorando notablemente el TTFB percibido en conexiones
+// móviles. No comprimir respuestas pequeñas (<1KB) ni con header
+// 'x-no-compression' (escape hatch para debugging).
+app.use(compression({
+  threshold: 1024,
+  filter: (req, res) => {
+    if (req.headers['x-no-compression']) return false;
+    return compression.filter(req, res);
+  }
+}));
 
 // ─── SEO endpoints (sitemap.xml, robots.txt) ───
 // Mounted at root BEFORE auth/session/rate-limit middleware so search engine

@@ -11,6 +11,8 @@ import paymentsRoutes from './shared/payments.routes.js';
 import chatRoutes from './shared/chat.routes.js';
 import reviewRoutes from './shared/reviews.routes.js';
 import adminRoutes from './admin/users.routes.js';
+import cmsAdminRoutes from './admin/cms.routes.js';
+import contentRoutes from './shared/content.routes.js';
 import uploadRoutes from './shared/uploads.routes.js';
 import notificationRoutes from './shared/notifications.routes.js';
 import countersRoutes from './shared/counters.routes.js';
@@ -28,6 +30,10 @@ router.use('/bookings', bookingRoutes);
 router.use('/payments', paymentsRoutes);
 router.use('/chats', chatRoutes);
 router.use('/reviews', reviewRoutes);
+// CMS: pública (lectura) y admin (escritura). El admin va ANTES de /admin
+// genérico para que Express resuelva primero el router más específico.
+router.use('/content', contentRoutes);
+router.use('/admin/cms', cmsAdminRoutes);
 router.use('/admin', adminRoutes);
 router.use('/uploads', uploadRoutes);
 router.use('/notifications', notificationRoutes);

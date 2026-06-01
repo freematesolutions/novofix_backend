@@ -17,6 +17,7 @@ import {
   updateFaqSchema,
   reorderFaqSchema,
   resetFromDefaultsBodySchema,
+  resetFaqFromDefaultsBodySchema,
   upsertServiceCategorySchema,
   serviceCategoryKeyParamSchema
 } from '../../schemas/cms.schemas.js';
@@ -82,6 +83,14 @@ router.post(
 router.get('/faq', cmsController.listFaqAdmin);
 router.post('/faq', cmsWriteLimiter, validateBody(createFaqSchema), cmsController.createFaq);
 router.put('/faq/reorder', cmsWriteLimiter, validateBody(reorderFaqSchema), cmsController.reorderFaq);
+// Reimporta los FAQs canónicos (los que se ven en la Home). En modo `replace`
+// borra primero todos los FaqItem; en modo `append` sólo crea los faltantes.
+router.post(
+  '/faq/reset-from-defaults',
+  cmsWriteLimiter,
+  validateBody(resetFaqFromDefaultsBodySchema),
+  cmsController.resetFaqFromDefaults
+);
 router.put('/faq/:id', cmsWriteLimiter, validateBody(updateFaqSchema), cmsController.updateFaq);
 router.delete('/faq/:id', cmsWriteLimiter, cmsController.deleteFaq);
 

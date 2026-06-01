@@ -92,11 +92,24 @@ const ABOUT_SECTIONS_EN = [
   { id: 'story', label: 'Our Story', body: 'NovoFix emerged from the frustration of looking for a good plumber, electrician, or painter and not knowing who to turn to. We knew there were thousands of talented professionals, but there was no easy and reliable way to find them.\n\nThat\'s how NovoFix was born: a platform that combines modern technology with human warmth. Since our launch, we\'ve connected hundreds of clients with verified professionals, facilitating thousands of successfully completed services.\n\nToday, we continue to grow with the same passion as day one, constantly improving our platform to offer the best possible experience to our community.' }
 ];
 
+// Hero de la Home — refleja EXACTAMENTE las claves i18n que renderiza
+// `client/src/pages/Home.jsx`:
+//   <h1>{t('home.title1')} {t('home.title2')}</h1>
+//   placeholder buscador = t('home.searchPlaceholder')
+//   descripción opcional para SEO/JSON-LD = t('home.heroDescription')
+// Si en el futuro Home agrega más copys, añadirlos aquí con su `id` y se
+// pueden editar desde el panel sin redeploy.
 const HERO_SECTIONS_ES = [
-  { id: 'subtitle', label: 'Subtítulo', body: 'Conectamos clientes con técnicos verificados.' }
+  { id: 'title1', label: 'Título (parte 1)', body: 'Encuentra el profesional' },
+  { id: 'title2', label: 'Título (parte 2)', body: 'que necesitas ahora' },
+  { id: 'heroDescription', label: 'Descripción del hero', body: 'Encuentra y contrata a los mejores profesionales para tu necesidad.' },
+  { id: 'searchPlaceholder', label: 'Placeholder del buscador', body: 'Buscar servicios profesionales...' }
 ];
 const HERO_SECTIONS_EN = [
-  { id: 'subtitle', label: 'Subtitle', body: 'We connect clients with verified technicians.' }
+  { id: 'title1', label: 'Title (part 1)', body: 'Find the professional' },
+  { id: 'title2', label: 'Title (part 2)', body: 'you need right now' },
+  { id: 'heroDescription', label: 'Hero description', body: 'Find and hire the best professionals for your needs.' },
+  { id: 'searchPlaceholder', label: 'Search placeholder', body: 'Search professional services...' }
 ];
 
 const CONTACT_SECTIONS_ES = [
@@ -110,7 +123,7 @@ const TITLES = {
   terms: { es: 'Términos y Condiciones', en: 'Terms and Conditions' },
   privacy: { es: 'Política de Privacidad', en: 'Privacy Policy' },
   about: { es: 'Sobre Nosotros', en: 'About Us' },
-  hero: { es: 'Encontrá el profesional ideal para tu hogar', en: 'Find the perfect professional for your home' },
+  hero: { es: 'Encuentra el profesional que necesitas ahora', en: 'Find the professional you need right now' },
   contact: { es: 'Contacto', en: 'Contact' }
 };
 
@@ -155,4 +168,85 @@ export function buildDefaultTranslations(key) {
   };
 }
 
-export default { buildDefaultLocale, buildDefaultTranslations };
+// ─── FAQ por defecto ────────────────────────────────────────────────────────
+// Estos son los MISMOS textos que aparecen en `seo.home.faq` de los archivos
+// de i18n (cliente). Al sembrarlos en la colección FaqItem podemos:
+//   1) Renderizar la sección FAQ de la Home y la página dedicada `/faq` desde
+//      la BBDD (editable por admin sin redeploy), con fallback a i18n.
+//   2) Construir el JSON-LD de Google también desde la BBDD cuando haya
+//      datos, manteniendo paridad SEO con lo visible.
+// Si en el futuro hace falta sumar más preguntas, basta con agregarlas aquí
+// y disparar el botón "Reimportar FAQ del sitio" del panel admin.
+const FAQ_DEFAULTS = [
+  {
+    category: 'general',
+    order: 10,
+    question: {
+      es: '¿Qué servicios para el hogar ofrece NovoFix en Miami?',
+      en: 'What home services does NovoFix offer in Miami?'
+    },
+    answerMarkdown: {
+      es: 'NovoFix conecta con profesionales certificados en Miami, FL para handyman, plomería, electricidad residencial (incluyendo emergencias 24 horas y cumplimiento del código NEC), técnicos de aire acondicionado, remodelación de casas, mantenimiento preventivo y más. Cubrimos Miami-Dade, Broward y Palm Beach.',
+      en: 'NovoFix connects you with certified professionals in Miami, FL for handyman, plumbing, residential electrical work (including 24/7 emergencies and NEC code compliance), AC technicians, home remodeling, preventive maintenance and more. We cover Miami-Dade, Broward and Palm Beach.'
+    }
+  },
+  {
+    category: 'general',
+    order: 20,
+    question: {
+      es: '¿Los profesionales están verificados y certificados?',
+      en: 'Are the professionals verified and certified?'
+    },
+    answerMarkdown: {
+      es: 'Sí. Validamos identidad, contacto y experiencia de cada profesional. Los servicios técnicos como electricidad y aire acondicionado son ejecutados por profesionales certificados con servicios garantizados.',
+      en: 'Yes. We validate identity, contact information and experience for each professional. Technical services such as electrical and AC are performed by certified pros with guaranteed services.'
+    }
+  },
+  {
+    category: 'general',
+    order: 30,
+    question: {
+      es: '¿Cómo funciona el presupuesto gratis online?',
+      en: 'How does the free online quote work?'
+    },
+    answerMarkdown: {
+      es: 'Publicás tu solicitud describiendo el trabajo (puedes adjuntar fotos). En minutos recibís propuestas de profesionales locales con precio, tiempo estimado y reseñas. Comparás y eligís sin costo inicial.',
+      en: 'You post your request describing the job (photos optional). Within minutes you\'ll receive proposals from local pros with price, ETA and reviews. Compare and pick the best fit at no upfront cost.'
+    }
+  },
+  {
+    category: 'general',
+    order: 40,
+    question: {
+      es: '¿Atienden electricistas residenciales 24 horas?',
+      en: 'Do you offer 24/7 residential electricians?'
+    },
+    answerMarkdown: {
+      es: 'Sí. Hay electricistas en Miami disponibles para emergencias 24/7: cortes de energía, paneles que disparan, instalaciones bajo código NEC y cálculo de panel eléctrico para viviendas.',
+      en: 'Yes. Miami electricians are available 24/7 for emergencies: power outages, tripping panels, NEC-compliant installations and residential electrical panel sizing.'
+    }
+  },
+  {
+    category: 'general',
+    order: 50,
+    question: {
+      es: '¿Puedo conectar con contratistas locales para una remodelación?',
+      en: 'Can I connect with local contractors for a remodel?'
+    },
+    answerMarkdown: {
+      es: 'Sí. NovoFix funciona como directorio de profesionales en Florida con experiencia en remodelación de casas en Miami: cocinas, baños, pisos, pintura y ampliaciones. Recibís presupuestos comparables sin compromiso.',
+      en: 'Absolutely. NovoFix works as a Florida contractor directory with experience in Miami home remodeling: kitchens, bathrooms, floors, paint and additions. Get comparable quotes with no commitment.'
+    }
+  }
+];
+
+/**
+ * Devuelve los FAQs canónicos listos para insertar en `FaqItem`. El llamador
+ * debe encargarse de renderizar `answerHtml` con `renderMarkdownSafe()` para
+ * no introducir una dependencia circular con cmsService desde este módulo.
+ */
+export function buildDefaultFaqItems() {
+  return FAQ_DEFAULTS.map((it) => ({ ...it, active: true }));
+}
+
+export default { buildDefaultLocale, buildDefaultTranslations, buildDefaultFaqItems };

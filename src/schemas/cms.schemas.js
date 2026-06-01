@@ -92,6 +92,13 @@ export const resetFromDefaultsBodySchema = Joi.object({
   locale: Joi.string().valid('es', 'en', 'both').default('both')
 });
 
+// Body opcional para POST /admin/cms/faq/reset-from-defaults.
+// `replace` borra todos los FaqItem antes de insertar los defaults.
+// `append`  sólo crea los que no existen (matcheando por question.es).
+export const resetFaqFromDefaultsBodySchema = Joi.object({
+  mode: Joi.string().valid('replace', 'append').default('replace')
+});
+
 const localizedLabel = Joi.object({
   es: Joi.string().trim().max(200).allow(''),
   en: Joi.string().trim().max(200).allow('')
@@ -116,6 +123,7 @@ export default {
   reorderFaqSchema,
   faqQuerySchema,
   resetFromDefaultsBodySchema,
+  resetFaqFromDefaultsBodySchema,
   upsertServiceCategorySchema,
   serviceCategoryKeyParamSchema
 };

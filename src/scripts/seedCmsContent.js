@@ -17,37 +17,12 @@ import mongoose from 'mongoose';
 import CmsContent, { CMS_CONTENT_KEYS } from '../models/Content/CmsContent.js';
 import FaqItem from '../models/Content/FaqItem.js';
 import { renderMarkdownSafe } from '../services/internal/cmsService.js';
-import { buildDefaultTranslations } from '../services/internal/cmsDefaults.js';
+import { buildDefaultTranslations, buildDefaultFaqItems } from '../services/internal/cmsDefaults.js';
 
-const DEFAULT_FAQ = [
-  {
-    category: 'general',
-    order: 10,
-    question: { es: '¿Qué es NovoFix?', en: 'What is NovoFix?' },
-    answerMarkdown: {
-      es: 'NovoFix es una plataforma que conecta clientes con **profesionales verificados** del rubro hogar y servicios.',
-      en: 'NovoFix is a platform that connects customers with **verified professionals** in home and service trades.'
-    }
-  },
-  {
-    category: 'client',
-    order: 10,
-    question: { es: '¿Cómo publico una solicitud?', en: 'How do I post a request?' },
-    answerMarkdown: {
-      es: 'Iniciá sesión como cliente y desde tu panel hacé clic en *Nueva solicitud*. Completá los datos y enviala.',
-      en: 'Sign in as a client and from your dashboard click *New request*. Fill in the details and submit.'
-    }
-  },
-  {
-    category: 'provider',
-    order: 10,
-    question: { es: '¿Cómo me registro como profesional?', en: 'How do I register as a professional?' },
-    answerMarkdown: {
-      es: 'Desde la página principal elegí **Soy profesional** y completá el onboarding.',
-      en: 'From the home page choose **I am a professional** and complete the onboarding.'
-    }
-  }
-];
+// Los defaults de FAQ son los MISMOS textos que se ven en la Home (sección
+// FAQ + JSON-LD). Vivían en `seo.home.faq` del i18n y ahora se persisten en
+// `FaqItem` para que el admin pueda editarlos sin redeploy.
+const DEFAULT_FAQ = buildDefaultFaqItems();
 
 async function seed() {
   const uri = process.env.MONGODB_URI || process.env.MONGO_URI;

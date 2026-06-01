@@ -50,6 +50,7 @@ let mongod;
 let app;
 let CmsContent;
 let FaqItem;
+let ServiceCategoryOverride;
 let adminToken;
 let clientToken;
 
@@ -64,6 +65,7 @@ beforeAll(async () => {
 
   CmsContent = (await import('../models/Content/CmsContent.js')).default;
   FaqItem = (await import('../models/Content/FaqItem.js')).default;
+  ServiceCategoryOverride = (await import('../models/Content/ServiceCategoryOverride.js')).default;
 
   // Crear un admin real usando el discriminator Admin para que el role 'admin'
   // se persista correctamente (User base no acepta role='admin' directo porque
@@ -102,6 +104,7 @@ afterAll(async () => {
 beforeEach(async () => {
   await CmsContent.deleteMany({});
   await FaqItem.deleteMany({});
+  if (ServiceCategoryOverride) await ServiceCategoryOverride.deleteMany({});
 });
 
 // ════════════════════════════════════════════════════════════════════
@@ -324,5 +327,110 @@ describe('FAQ admin + público', () => {
     const res = await request(app).get('/api/content/faq?locale=es');
     expect(res.body.data.items.length).toBe(1);
     expect(res.body.data.items[0].question).toBe('q1');
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════
+// Reset desde defaults
+// ════════════════════════════════════════════════════════════════════
+describe('Reset content from defaults', () => {
+  it('reimporta plantilla con todas las secciones reales (terms ES tiene 11)', async () => {
+    // Doc actual con sólo 1 sección (simula el seed mínimo viejo)
+    await CmsContent.create({
+      key: 'terms',
+      translations: {
+        es: { title: 'old', sections: [{ id: 'intro', label: 'I', bodyMarkdown: 'x', bodyHtml: '<p>x</p>' }] },
+        en: { title: 'old', sections: [{ id: 'intro', label: 'I', bodyMarkdown: 'x', bodyHtml: '<p>x</p>' }] }
+      },
+      version: 1
+    });
+
+    const reset = await request(app)
+      .post('/api/admin/cms/contents/terms/reset-from-defaults')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ locale: 'both' });
+
+    expect(reset.status).toBe(200);
+    expect(reset.body.data.sectionsCount.es).toBeGreaterThanOrEqual(10);
+    expect(reset.body.data.sectionsCount.en).toBeGreaterThanOrEqual(10);
+
+    // El doc debe traer ahora las secciones canónicas (acceptance, services, …)
+    const doc = await CmsContent.findOne({ key: 'terms' }).lean();
+    const ids = doc.translations.es.sections.map((s) => s.id);
+    expect(ids).toContain('acceptance');
+    expect(ids).toContain('services');
+    expect(ids).toContain('contact');
+    // El contenido viejo debe estar en historial (no destructivo)
+    expect(doc.history.length).toBeGreaterThan(0);
+  });
+
+  it('rechaza reset sin token admin', async () => {
+    const res = await request(app)
+      .post('/api/admin/cms/contents/privacy/reset-from-defaults')
+      .send({ locale: 'both' });
+    expect(res.status).toBe(401);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════
+// Service Categories overrides
+// ════════════════════════════════════════════════════════════════════
+describe('Service Category overrides', () => {
+  it('list devuelve las 22 categorías canónicas', async () => {
+    const res = await request(app)
+      .get('/api/admin/cms/service-categories')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data.items.length).toBe(22);
+    // todas inician sin override
+    expect(res.body.data.items.every((it) => it.hasOverride === false)).toBe(true);
+  });
+
+  it('upsert + endpoint público reflejan label/description', async () => {
+    const put = await request(app)
+      .put('/api/admin/cms/service-categories/Plomer%C3%ADa')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        label: { es: 'Fontanería', en: 'Plumbing Pro' },
+        description: { es: 'Sin fugas', en: 'No leaks' }
+      });
+    expect(put.status).toBe(200);
+    expect(put.body.data.label.es).toBe('Fontanería');
+
+    const pubEs = await request(app).get('/api/content/service-categories?locale=es');
+    expect(pubEs.status).toBe(200);
+    expect(pubEs.body.data.overrides['Plomería']).toEqual({ label: 'Fontanería', description: 'Sin fugas' });
+
+    const pubEn = await request(app).get('/api/content/service-categories?locale=en');
+    expect(pubEn.body.data.overrides['Plomería']).toEqual({ label: 'Plumbing Pro', description: 'No leaks' });
+  });
+
+  it('delete restablece (la categoría desaparece de overrides públicos)', async () => {
+    await request(app)
+      .put('/api/admin/cms/service-categories/Electricidad')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ label: { es: 'Luz', en: 'Light' } });
+
+    const del = await request(app)
+      .delete('/api/admin/cms/service-categories/Electricidad')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(del.status).toBe(200);
+
+    const pub = await request(app).get('/api/content/service-categories?locale=es');
+    expect(pub.body.data.overrides['Electricidad']).toBeUndefined();
+  });
+
+  it('rechaza categoría inexistente', async () => {
+    const res = await request(app)
+      .put('/api/admin/cms/service-categories/NoExisteTal')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ label: { es: 'x' } });
+    expect(res.status).toBe(404);
+  });
+
+  it('rechaza acceso sin token admin', async () => {
+    const res = await request(app)
+      .get('/api/admin/cms/service-categories');
+    expect(res.status).toBe(401);
   });
 });

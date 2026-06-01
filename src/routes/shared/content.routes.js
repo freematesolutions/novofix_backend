@@ -14,6 +14,14 @@ const router = express.Router();
 // FAQ debe ir ANTES de '/:key' para que no caiga en el matcher genérico.
 router.get('/faq', validateQuery(faqQuerySchema), cmsController.getPublicFaq);
 
+// Overrides editoriales de categorías de servicio (labels + descripciones).
+// El frontend lo consume al boot para mergear en i18n sin romper fallback.
+router.get(
+  '/service-categories',
+  validateQuery(publicLocaleQuerySchema),
+  cmsController.getPublicServiceCategories
+);
+
 router.get(
   '/:key',
   validateParams(contentKeyParamSchema),

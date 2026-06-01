@@ -15,7 +15,10 @@ import {
   rollbackParamSchema,
   createFaqSchema,
   updateFaqSchema,
-  reorderFaqSchema
+  reorderFaqSchema,
+  resetFromDefaultsBodySchema,
+  upsertServiceCategorySchema,
+  serviceCategoryKeyParamSchema
 } from '../../schemas/cms.schemas.js';
 
 const router = express.Router();
@@ -64,11 +67,40 @@ router.post(
   cmsController.rollbackContent
 );
 
+// Re-importa el contenido por defecto (definido server-side) para esa key.
+// Útil tras un seed mínimo: el admin obtiene todas las secciones reales del
+// sitio público en un sólo click, prellenadas para editar encima.
+router.post(
+  '/contents/:key/reset-from-defaults',
+  cmsWriteLimiter,
+  validateParams(contentKeyParamSchema),
+  validateBody(resetFromDefaultsBodySchema),
+  cmsController.resetContentFromDefaults
+);
+
 // ─── FAQ ────────────────────────────────────────────────────────────────────
 router.get('/faq', cmsController.listFaqAdmin);
 router.post('/faq', cmsWriteLimiter, validateBody(createFaqSchema), cmsController.createFaq);
 router.put('/faq/reorder', cmsWriteLimiter, validateBody(reorderFaqSchema), cmsController.reorderFaq);
 router.put('/faq/:id', cmsWriteLimiter, validateBody(updateFaqSchema), cmsController.updateFaq);
 router.delete('/faq/:id', cmsWriteLimiter, cmsController.deleteFaq);
+
+// ─── Service Categories overrides ───────────────────────────────────────────
+// Sólo edita etiquetas visibles y descripciones. La clave canónica NUNCA
+// cambia desde aquí (acoplada a perfiles/solicitudes/matching/slugs SEO).
+router.get('/service-categories', cmsController.listServiceCategoriesAdmin);
+router.put(
+  '/service-categories/:key',
+  cmsWriteLimiter,
+  validateParams(serviceCategoryKeyParamSchema),
+  validateBody(upsertServiceCategorySchema),
+  cmsController.upsertServiceCategoryOverride
+);
+router.delete(
+  '/service-categories/:key',
+  cmsWriteLimiter,
+  validateParams(serviceCategoryKeyParamSchema),
+  cmsController.deleteServiceCategoryOverride
+);
 
 export default router;

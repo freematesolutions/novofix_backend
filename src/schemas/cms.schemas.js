@@ -86,6 +86,26 @@ export const faqQuerySchema = Joi.object({
   category: Joi.string().valid(...FAQ_CATEGORIES, 'all').default('all')
 });
 
+// ─── Reset & Service Categories ─────────────────────────────────────────────
+
+export const resetFromDefaultsBodySchema = Joi.object({
+  locale: Joi.string().valid('es', 'en', 'both').default('both')
+});
+
+const localizedLabel = Joi.object({
+  es: Joi.string().trim().max(200).allow(''),
+  en: Joi.string().trim().max(200).allow('')
+});
+
+export const upsertServiceCategorySchema = Joi.object({
+  label: localizedLabel.optional(),
+  description: localizedLabel.optional()
+}).min(1);
+
+export const serviceCategoryKeyParamSchema = Joi.object({
+  key: Joi.string().min(1).max(80).required()
+});
+
 export default {
   updateContentSchema,
   contentKeyParamSchema,
@@ -94,5 +114,8 @@ export default {
   createFaqSchema,
   updateFaqSchema,
   reorderFaqSchema,
-  faqQuerySchema
+  faqQuerySchema,
+  resetFromDefaultsBodySchema,
+  upsertServiceCategorySchema,
+  serviceCategoryKeyParamSchema
 };

@@ -17,7 +17,7 @@ async function run() {
 	const args = parseArgs(process.argv.slice(2));
 	const email = (args.email || process.env.ADMIN_EMAIL || process.env.DEFAULT_ADMIN_EMAIL || 'admin@marketplace.com');
 		const password = (process.env.ADMIN_PASSWORD || process.env.DEFAULT_ADMIN_PASSWORD || generateTempPassword());
-		const firstName = process.env.ADMIN_FIRST_NAME || process.env.DEFAULT_ADMIN_NAME || 'Admin';
+		const firstName = process.env.ADMIN_FIRST_NAME || process.env.DEFAULT_ADMIN_NAME || 'Admin';//contrasena Admin123!
 		const lastName = process.env.ADMIN_LAST_NAME || 'User';
 	const reset = (process.env.SEED_ADMIN_OVERWRITE || '').toLowerCase() === 'true' || args.reset === true;
 

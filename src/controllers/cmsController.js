@@ -20,7 +20,7 @@ import {
   setCachedServiceCategories,
   invalidateServiceCategoriesCache
 } from '../services/internal/cmsService.js';
-import { buildDefaultTranslations } from '../services/internal/cmsDefaults.js';
+import { buildDefaultTranslations, buildDefaultFaqItems } from '../services/internal/cmsDefaults.js';
 
 const CACHE_HEADERS = {
   publicShortLive: 'public, max-age=30, s-maxage=60, stale-while-revalidate=300'
@@ -603,6 +603,65 @@ async function resetContentFromDefaults(req, res) {
   }
 }
 
+// ─── Reset FAQ desde defaults ───────────────────────────────────────────────
+
+/**
+ * POST /api/admin/cms/faq/reset-from-defaults
+ *
+ * Reimporta los FAQs canónicos definidos server-side (mismos textos que la
+ * Home muestra). Útil para alinear la BBDD con lo visible cuando:
+ *   - El seed inicial dejó dummies sin relación con la Home.
+ *   - El admin quiere descartar todo y empezar de cero con la plantilla real.
+ *
+ * Body opcional:
+ *   { mode: 'replace' (default) | 'append' }
+ *     replace → borra TODO `FaqItem` antes de insertar los defaults.
+ *     append  → sólo inserta los que NO existen (matcheando por question.es).
+ */
+async function resetFaqFromDefaults(req, res) {
+  try {
+    const mode = req.body?.mode === 'append' ? 'append' : 'replace';
+    const defaults = buildDefaultFaqItems();
+
+    let removed = 0;
+    if (mode === 'replace') {
+      const r = await FaqItem.deleteMany({});
+      removed = r?.deletedCount || 0;
+    }
+
+    let created = 0;
+    let skipped = 0;
+    for (const item of defaults) {
+      if (mode === 'append') {
+        const exists = await FaqItem.findOne({ 'question.es': item.question.es }).lean();
+        if (exists) { skipped++; continue; }
+      }
+      await FaqItem.create({
+        category: item.category,
+        order: item.order,
+        question: item.question,
+        answerMarkdown: item.answerMarkdown,
+        answerHtml: {
+          es: renderMarkdownSafe(item.answerMarkdown.es || ''),
+          en: renderMarkdownSafe(item.answerMarkdown.en || '')
+        },
+        active: true,
+        editedBy: req.user?._id || null
+      });
+      created++;
+    }
+
+    await invalidateFaqCache();
+    return res.json({
+      success: true,
+      data: { mode, removed, created, skipped, total: defaults.length }
+    });
+  } catch (error) {
+    console.error('CmsController - resetFaqFromDefaults error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to reset FAQ from defaults' });
+  }
+}
+
 // ─── Service Category Overrides ─────────────────────────────────────────────
 //
 // Permiten al admin renombrar la etiqueta visible y la descripción corta de las
@@ -745,6 +804,7 @@ export default {
   updateFaq,
   deleteFaq,
   reorderFaq,
+  resetFaqFromDefaults,
   // Admin: service categories
   listServiceCategoriesAdmin,
   upsertServiceCategoryOverride,

@@ -195,11 +195,21 @@ async function listContents(_req, res) {
  * GET /api/admin/cms/contents/:key
  * Devuelve el documento completo (sin historial expandido para mantener payload chico).
  * Incluye Markdown fuente para que el admin edite.
+ *
+ * Adicionalmente incluye `defaults` (plantilla canónica server-side) para que
+ * el panel pueda PRELLENAR el editor cuando el doc actual está vacío o tiene
+ * sólo el placeholder mínimo (caso típico tras un seed antiguo). Esto evita
+ * que el admin tenga que tocar manualmente "Reimportar plantilla" para ver
+ * todas las secciones reales del sitio.
  */
 async function getContentForAdmin(req, res) {
   try {
     const { key } = req.params;
     const doc = await CmsContent.findOne({ key }).lean();
+    const defaults = (() => {
+      try { return buildDefaultTranslations(key); } catch { return null; }
+    })();
+
     if (!doc) {
       return res.json({
         success: true,
@@ -208,7 +218,8 @@ async function getContentForAdmin(req, res) {
           version: 0,
           publishedAt: null,
           translations: { es: { title: '', sections: [] }, en: { title: '', sections: [] } },
-          history: []
+          history: [],
+          defaults
         }
       });
     }
@@ -223,7 +234,7 @@ async function getContentForAdmin(req, res) {
     }));
     return res.json({
       success: true,
-      data: { ...doc, history: historySummary }
+      data: { ...doc, history: historySummary, defaults }
     });
   } catch (error) {
     console.error('CmsController - getContentForAdmin error:', error);

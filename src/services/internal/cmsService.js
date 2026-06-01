@@ -143,6 +143,37 @@ export async function invalidateFaqCache() {
   }
 }
 
+// ─── Service Categories overrides cache ──────────────────────────────────────
+
+const serviceCategoriesCacheKey = (locale) => `cms:service-categories:${locale}`;
+
+export async function getCachedServiceCategories(locale) {
+  try {
+    return await redisClient.get(serviceCategoriesCacheKey(locale));
+  } catch {
+    return null;
+  }
+}
+
+export async function setCachedServiceCategories(locale, payload, ttl = DEFAULT_TTL_SECONDS) {
+  try {
+    await redisClient.set(serviceCategoriesCacheKey(locale), payload, { EX: ttl });
+  } catch {
+    /* noop */
+  }
+}
+
+export async function invalidateServiceCategoriesCache() {
+  try {
+    await Promise.all([
+      redisClient.del(serviceCategoriesCacheKey('es')),
+      redisClient.del(serviceCategoriesCacheKey('en'))
+    ]);
+  } catch {
+    /* noop */
+  }
+}
+
 export default {
   renderMarkdownSafe,
   sanitizeHtmlStrict,
@@ -151,5 +182,8 @@ export default {
   invalidateContentCache,
   getCachedFaq,
   setCachedFaq,
-  invalidateFaqCache
+  invalidateFaqCache,
+  getCachedServiceCategories,
+  setCachedServiceCategories,
+  invalidateServiceCategoriesCache
 };

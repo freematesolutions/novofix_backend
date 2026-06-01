@@ -1,84 +1,23 @@
 // scripts/seedCmsContent.js
 //
-// Crea los registros iniciales del CMS para cada `key` editable.
-// El frontend usa los textos i18n existentes como fallback hasta que el
-// admin publique contenido propio desde el panel; este seed sólo garantiza
-// que existan documentos en Mongo para que el panel los liste.
+// Siembra los registros iniciales del CMS para cada `key` editable usando
+// los DEFAULTS canónicos de `services/internal/cmsDefaults.js` (mismos textos
+// que viven en `client/src/locales/{es,en}/translation.json`).
+//
+// Si el documento ya existe NO se sobreescribe — para reimportar desde
+// defaults usar el endpoint admin `POST /admin/cms/contents/:key/reset-from-defaults`
+// o el botón "Reimportar plantilla" del panel.
 //
 // Uso:
 //   node src/scripts/seedCmsContent.js
-//   npm run seed:cms   (si lo agregás a package.json)
+//   npm run seed:cms
 
 import 'dotenv/config';
 import mongoose from 'mongoose';
 import CmsContent, { CMS_CONTENT_KEYS } from '../models/Content/CmsContent.js';
 import FaqItem from '../models/Content/FaqItem.js';
 import { renderMarkdownSafe } from '../services/internal/cmsService.js';
-
-const DEFAULTS = {
-  terms: {
-    es: {
-      title: 'Términos y Condiciones',
-      sections: [{
-        id: 'intro',
-        label: 'Introducción',
-        bodyMarkdown:
-          '_Este contenido aún no fue editado en el panel. Se está mostrando el texto por defecto definido en la traducción._\n\n' +
-          'Editá esta página desde **Admin → Contenidos → Términos y Condiciones**.'
-      }]
-    },
-    en: {
-      title: 'Terms and Conditions',
-      sections: [{
-        id: 'intro',
-        label: 'Introduction',
-        bodyMarkdown:
-          '_This content has not yet been edited in the panel. The default translation text is shown._\n\n' +
-          'Edit this page from **Admin → Contents → Terms and Conditions**.'
-      }]
-    }
-  },
-  privacy: {
-    es: {
-      title: 'Política de Privacidad',
-      sections: [{ id: 'intro', label: 'Introducción', bodyMarkdown: 'Editá esta página desde **Admin → Contenidos → Política de Privacidad**.' }]
-    },
-    en: {
-      title: 'Privacy Policy',
-      sections: [{ id: 'intro', label: 'Introduction', bodyMarkdown: 'Edit this page from **Admin → Contents → Privacy Policy**.' }]
-    }
-  },
-  about: {
-    es: {
-      title: 'Sobre Nosotros',
-      sections: [{ id: 'intro', label: 'Quiénes somos', bodyMarkdown: 'Editá esta página desde **Admin → Contenidos → Sobre Nosotros**.' }]
-    },
-    en: {
-      title: 'About Us',
-      sections: [{ id: 'intro', label: 'Who we are', bodyMarkdown: 'Edit this page from **Admin → Contents → About Us**.' }]
-    }
-  },
-  hero: {
-    es: {
-      title: 'Encontrá el profesional ideal para tu hogar',
-      sections: [{ id: 'subtitle', label: 'Subtítulo', bodyMarkdown: 'Conectamos clientes con técnicos verificados.' }]
-    },
-    en: {
-      title: 'Find the perfect professional for your home',
-      sections: [{ id: 'subtitle', label: 'Subtitle', bodyMarkdown: 'We connect clients with verified technicians.' }]
-    }
-  },
-  contact: {
-    es: {
-      title: 'Contacto',
-      sections: [{ id: 'email', label: 'Email', bodyMarkdown: 'soporte@novofixpro.com' }]
-    },
-    en: {
-      title: 'Contact',
-      sections: [{ id: 'email', label: 'Email', bodyMarkdown: 'soporte@novofixpro.com' }]
-    }
-  }
-};
+import { buildDefaultTranslations } from '../services/internal/cmsDefaults.js';
 
 const DEFAULT_FAQ = [
   {
@@ -120,36 +59,28 @@ async function seed() {
   await mongoose.connect(uri);
   console.log('✅ Conectado a MongoDB');
 
-  // Contenidos
+  // Contenidos editoriales (terms / privacy / about / hero / contact)
   let created = 0;
   let skipped = 0;
   for (const key of CMS_CONTENT_KEYS) {
     const exists = await CmsContent.findOne({ key }).lean();
     if (exists) {
       skipped++;
-      console.log(`⏭️  ${key}: ya existe, no se sobreescribe`);
+      console.log(`⏭️  ${key}: ya existe, se conserva. (Usar reset-from-defaults para reimportar.)`);
       continue;
     }
-    const data = DEFAULTS[key];
-    const buildLocale = (loc) => ({
-      title: loc.title,
-      sections: loc.sections.map((s) => ({
-        id: s.id,
-        label: s.label,
-        bodyMarkdown: s.bodyMarkdown,
-        bodyHtml: renderMarkdownSafe(s.bodyMarkdown)
-      })),
-      lastEditedAt: new Date()
-    });
-
+    const translations = buildDefaultTranslations(key);
     await CmsContent.create({
       key,
-      translations: { es: buildLocale(data.es), en: buildLocale(data.en) },
+      translations: {
+        es: { ...translations.es, lastEditedAt: new Date() },
+        en: { ...translations.en, lastEditedAt: new Date() }
+      },
       version: 1,
       publishedAt: new Date()
     });
     created++;
-    console.log(`✅ ${key}: creado`);
+    console.log(`✅ ${key}: creado con ${translations.es.sections.length} secciones ES y ${translations.en.sections.length} EN`);
   }
 
   // FAQ

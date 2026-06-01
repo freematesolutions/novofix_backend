@@ -6,6 +6,8 @@
 
 import CmsContent, { CMS_CONTENT_KEYS } from '../models/Content/CmsContent.js';
 import FaqItem from '../models/Content/FaqItem.js';
+import ServiceCategoryOverride from '../models/Content/ServiceCategoryOverride.js';
+import { SERVICE_CATEGORIES } from '../config/categories.js';
 import {
   renderMarkdownSafe,
   getCachedContent,
@@ -13,8 +15,12 @@ import {
   invalidateContentCache,
   getCachedFaq,
   setCachedFaq,
-  invalidateFaqCache
+  invalidateFaqCache,
+  getCachedServiceCategories,
+  setCachedServiceCategories,
+  invalidateServiceCategoriesCache
 } from '../services/internal/cmsService.js';
+import { buildDefaultTranslations } from '../services/internal/cmsDefaults.js';
 
 const CACHE_HEADERS = {
   publicShortLive: 'public, max-age=30, s-maxage=60, stale-while-revalidate=300'
@@ -503,20 +509,233 @@ async function reorderFaq(req, res) {
   }
 }
 
+// ─── Reset desde plantilla por defecto ──────────────────────────────────────
+
+/**
+ * POST /api/admin/cms/contents/:key/reset-from-defaults
+ *
+ * Re-importa la estructura completa de secciones por defecto (definida en
+ * `cmsDefaults.js`) para la `key` indicada. Pensado para casos donde:
+ *   - El admin entró al editor y vio sólo 1 sección placeholder (porque el
+ *     seed inicial era mínimo) y al publicar perdió de vista el resto.
+ *   - Quiere descartar todo lo editado y volver al texto original del sitio.
+ *
+ * Body opcional: { locale: 'es' | 'en' | 'both' (default 'both') }
+ *
+ * Conserva historial antes de sobreescribir (es no destructivo).
+ */
+async function resetContentFromDefaults(req, res) {
+  try {
+    const { key } = req.params;
+    const localeArg = req.body?.locale || 'both';
+    const defaults = buildDefaultTranslations(key);
+    if (!defaults?.es?.sections?.length && !defaults?.en?.sections?.length) {
+      return res.status(400).json({
+        success: false,
+        message: `No defaults available for key "${key}"`
+      });
+    }
+
+    let doc = await CmsContent.findOne({ key });
+    const now = new Date();
+    if (!doc) {
+      doc = new CmsContent({
+        key,
+        translations: { es: { title: '', sections: [] }, en: { title: '', sections: [] } },
+        version: 0
+      });
+    }
+
+    const localesToReset = localeArg === 'both' ? ['es', 'en'] : [localeArg];
+    for (const loc of localesToReset) {
+      // Snapshot del estado actual antes de sobreescribir (rollback friendly)
+      const previous = doc.translations?.[loc];
+      if (previous && (previous.title || (previous.sections && previous.sections.length))) {
+        doc.pushHistory({
+          version: doc.version,
+          locale: loc,
+          titleSnapshot: previous.title,
+          sectionsSnapshot: previous.sections,
+          editedBy: doc.editedBy,
+          editedAt: now
+        });
+      }
+      doc.translations[loc] = {
+        title: defaults[loc].title,
+        sections: defaults[loc].sections,
+        lastEditedAt: now
+      };
+    }
+    doc.version = (doc.version || 0) + 1;
+    doc.publishedAt = now;
+    doc.editedBy = req.user?._id || null;
+
+    await doc.save();
+    await invalidateContentCache(key);
+
+    return res.json({
+      success: true,
+      data: {
+        key,
+        version: doc.version,
+        publishedAt: doc.publishedAt,
+        resetLocales: localesToReset,
+        sectionsCount: {
+          es: doc.translations.es.sections.length,
+          en: doc.translations.en.sections.length
+        }
+      }
+    });
+  } catch (error) {
+    console.error('CmsController - resetContentFromDefaults error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to reset content' });
+  }
+}
+
+// ─── Service Category Overrides ─────────────────────────────────────────────
+//
+// Permiten al admin renombrar la etiqueta visible y la descripción corta de las
+// 22 categorías de servicio sin tocar la clave canónica (que está acoplada a
+// perfiles, solicitudes, matching y URLs SEO).
+
+/**
+ * GET /api/content/service-categories?locale=es
+ * Público. Devuelve la lista combinada (clave + override aplicado o vacío).
+ * El frontend usa esto al boot para mergear en i18n.
+ */
+async function getPublicServiceCategories(req, res) {
+  try {
+    const locale = ['es', 'en'].includes(req.query.locale) ? req.query.locale : 'es';
+    const cached = await getCachedServiceCategories(locale);
+    if (cached) {
+      res.set('Cache-Control', CACHE_HEADERS.publicShortLive);
+      return res.json({ success: true, data: cached });
+    }
+    const docs = await ServiceCategoryOverride.find({}).lean();
+    const byKey = new Map(docs.map((d) => [d.canonicalKey, d]));
+    // Sólo devolvemos overrides con texto válido en el locale pedido para no
+    // contaminar el i18n con strings vacíos.
+    const overrides = {};
+    for (const key of SERVICE_CATEGORIES) {
+      const o = byKey.get(key);
+      if (!o) continue;
+      const label = o.label?.[locale];
+      const description = o.description?.[locale];
+      if ((label && label.trim()) || (description && description.trim())) {
+        overrides[key] = {
+          ...(label && label.trim() ? { label } : {}),
+          ...(description && description.trim() ? { description } : {})
+        };
+      }
+    }
+    const payload = { locale, overrides, count: Object.keys(overrides).length };
+    await setCachedServiceCategories(locale, payload);
+    res.set('Cache-Control', CACHE_HEADERS.publicShortLive);
+    return res.json({ success: true, data: payload });
+  } catch (error) {
+    console.error('CmsController - getPublicServiceCategories error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to load service categories' });
+  }
+}
+
+/**
+ * GET /api/admin/cms/service-categories
+ * Admin. Devuelve las 22 categorías canónicas con su override (o null).
+ */
+async function listServiceCategoriesAdmin(_req, res) {
+  try {
+    const docs = await ServiceCategoryOverride.find({}).lean();
+    const byKey = new Map(docs.map((d) => [d.canonicalKey, d]));
+    const items = SERVICE_CATEGORIES.map((key) => {
+      const o = byKey.get(key);
+      return {
+        canonicalKey: key,
+        hasOverride: Boolean(o),
+        label: { es: o?.label?.es || '', en: o?.label?.en || '' },
+        description: { es: o?.description?.es || '', en: o?.description?.en || '' },
+        updatedAt: o?.updatedAt || null
+      };
+    });
+    return res.json({ success: true, data: { items, total: items.length } });
+  } catch (error) {
+    console.error('CmsController - listServiceCategoriesAdmin error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to list service categories' });
+  }
+}
+
+/**
+ * PUT /api/admin/cms/service-categories/:key
+ * Upsert. Acepta { label: { es, en }, description: { es, en } } (cualquier subset).
+ */
+async function upsertServiceCategoryOverride(req, res) {
+  try {
+    const { key } = req.params;
+    if (!SERVICE_CATEGORIES.includes(key)) {
+      return res.status(404).json({ success: false, message: 'Unknown service category' });
+    }
+    const { label = {}, description = {} } = req.body || {};
+    const update = {
+      $set: {
+        canonicalKey: key,
+        'label.es': String(label.es || '').trim().slice(0, 200),
+        'label.en': String(label.en || '').trim().slice(0, 200),
+        'description.es': String(description.es || '').trim().slice(0, 200),
+        'description.en': String(description.en || '').trim().slice(0, 200),
+        editedBy: req.user?._id || null
+      }
+    };
+    const doc = await ServiceCategoryOverride.findOneAndUpdate(
+      { canonicalKey: key },
+      update,
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    await invalidateServiceCategoriesCache();
+    return res.json({ success: true, data: { canonicalKey: doc.canonicalKey, label: doc.label, description: doc.description, updatedAt: doc.updatedAt } });
+  } catch (error) {
+    console.error('CmsController - upsertServiceCategoryOverride error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to update service category' });
+  }
+}
+
+/**
+ * DELETE /api/admin/cms/service-categories/:key
+ * Borra el override (la categoría vuelve a leer su texto del i18n).
+ */
+async function deleteServiceCategoryOverride(req, res) {
+  try {
+    const { key } = req.params;
+    if (!SERVICE_CATEGORIES.includes(key)) {
+      return res.status(404).json({ success: false, message: 'Unknown service category' });
+    }
+    await ServiceCategoryOverride.findOneAndDelete({ canonicalKey: key });
+    await invalidateServiceCategoriesCache();
+    return res.json({ success: true, data: { canonicalKey: key, removed: true } });
+  } catch (error) {
+    console.error('CmsController - deleteServiceCategoryOverride error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to delete service category override' });
+  }
+}
+
 export default {
   // Públicos
   getPublicContent,
   getPublicFaq,
+  getPublicServiceCategories,
   // Admin: contenidos
   listContents,
   getContentForAdmin,
   getHistoryEntry,
   updateContent,
   rollbackContent,
+  resetContentFromDefaults,
   // Admin: FAQ
   listFaqAdmin,
   createFaq,
   updateFaq,
   deleteFaq,
-  reorderFaq
+  reorderFaq,
+  // Admin: service categories
+  listServiceCategoriesAdmin,
+  upsertServiceCategoryOverride,
+  deleteServiceCategoryOverride
 };

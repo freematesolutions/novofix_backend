@@ -49,7 +49,7 @@ async function uploadToCloudinary(file, retries = 3) {
       const uploadOptions = {
         folder: 'marketplace-services',
         resource_type: 'auto',
-        allowed_formats: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4', 'mov', 'avi', 'pdf', 'doc', 'docx'],
+        allowed_formats: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4', 'mov', 'avi', 'webm', 'mpeg', 'pdf', 'doc', 'docx'],
         timeout: 600000, // 10 minutos universal
         chunk_size: 20000000, // 20MB chunks para mejor rendimiento
         use_filename: true,
@@ -67,9 +67,10 @@ async function uploadToCloudinary(file, retries = 3) {
       if (isVideo) {
         uploadOptions.resource_type = 'video';
         
+        // Nota: `eager_async` requiere transformaciones `eager` definidas para ser válido.
+        // Lo omitimos para evitar errores 400 de Cloudinary en uploads sin transformaciones eager.
         if (isLargeFile) {
-          uploadOptions.eager_async = true; // Procesamiento asíncrono
-          console.log(`📦 Using optimized upload for large video (${fileSizeMB.toFixed(2)}MB)`);
+          console.log(`📦 Large video detected (${fileSizeMB.toFixed(2)}MB) — using standard async upload`);
         }
         
         // Optimizaciones de formato para videos
@@ -240,7 +241,7 @@ class UploadController {
 
       // Validar tipo de archivos
       const validImageTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
-      const validVideoTypes = ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/mpeg'];
+      const validVideoTypes = ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/mpeg', 'video/webm'];
       
       for (const file of req.files) {
         if (type === 'photos' && !validImageTypes.includes(file.mimetype)) {
@@ -252,7 +253,7 @@ class UploadController {
         if (type === 'videos' && !validVideoTypes.includes(file.mimetype)) {
           return res.status(400).json({
             success: false,
-            message: `Invalid video type: ${file.mimetype}. Allowed: MP4, MOV, AVI, MPEG`
+            message: `Invalid video type: ${file.mimetype}. Allowed: MP4, MOV, AVI, MPEG, WebM`
           });
         }
       }
@@ -429,13 +430,13 @@ class UploadController {
 
       // Validar tipos de archivos (imágenes y videos)
       const validImageTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
-      const validVideoTypes = ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/mpeg'];
+      const validVideoTypes = ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/mpeg', 'video/webm'];
       
       for (const file of req.files) {
         if (![...validImageTypes, ...validVideoTypes].includes(file.mimetype)) {
           return res.status(400).json({
             success: false,
-            message: `Invalid file type: ${file.mimetype}. Allowed: images (JPG, PNG, GIF, WebP) and videos (MP4, MOV, AVI, MPEG)`
+            message: `Invalid file type: ${file.mimetype}. Allowed: images (JPG, PNG, GIF, WebP) and videos (MP4, MOV, AVI, MPEG, WebM)`
           });
         }
       }
@@ -549,10 +550,10 @@ class UploadController {
           uploadOptions.timeout = 600000; // 10 minutos para videos
           uploadOptions.chunk_size = 20000000; // 20MB chunks
           
-          // Optimizaciones para videos grandes
+          // Nota: `eager_async` requiere transformaciones `eager` para ser válido.
+          // Lo omitimos para evitar errores 400 de Cloudinary en uploads sin transformaciones eager.
           if (isLargeFile) {
-            uploadOptions.eager_async = true; // Procesamiento asíncrono
-            console.log(`📦 Using async upload for large video (${fileSizeMB}MB)`);
+            console.log(`📦 Large chat video detected (${fileSizeMB}MB) — using standard upload`);
           }
           
           // Calidad adaptativa según tamaño

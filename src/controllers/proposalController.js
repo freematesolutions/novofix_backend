@@ -8,6 +8,7 @@ import scoringService from '../services/internal/scoringService.js';
 import subscriptionService from '../services/internal/subscriptionService.js';
 import bookingController from './bookingController.js';
 import emitter from '../websocket/services/emitterService.js';
+import { rejectIfSelfHire } from '../utils/selfHireGuard.js';
 
 class ProposalController {
   constructor() {
@@ -114,20 +115,52 @@ class ProposalController {
       if (!serviceRequest) {
         return res.status(404).json({ success: false, message: 'Service request not found' });
       }
+
+      // Bloqueo de auto-contrato: un usuario multirol no puede enviar propuesta a su propia solicitud
+      if (rejectIfSelfHire(res, req.user?._id, serviceRequest.client, 'proposal')) return;
+
       if (serviceRequest.status !== 'published') {
         return res.status(409).json({ success: false, message: 'Service request is not available for proposals', currentStatus: serviceRequest.status });
       }
 
-      // Evitar duplicar propuestas del mismo proveedor
-      const existing = await Proposal.findOne({ serviceRequest: serviceRequestId, provider: req.user._id });
-      if (existing) return res.status(400).json({ success: false, message: 'Proposal already exists for this service request' });
+      // Estados terminales que permiten reciclar una propuesta previa (el proveedor
+      // puede volver a presentarse si la anterior fue rechazada/cancelada/expirada).
+      const TERMINAL_STATES = ['rejected', 'cancelled', 'expired'];
 
-      const proposal = await Proposal.create({
-        serviceRequest: serviceRequestId,
-        provider: req.user._id,
-        message: message || '',
-        status: 'draft'
-      });
+      // Evitar duplicar propuestas activas del mismo proveedor.
+      // Si existe una propuesta en estado terminal, la reciclamos en lugar de bloquear.
+      const existing = await Proposal.findOne({ serviceRequest: serviceRequestId, provider: req.user._id });
+      if (existing && !TERMINAL_STATES.includes(existing.status)) {
+        return res.status(400).json({
+          success: false,
+          code: 'PROPOSAL_ALREADY_ACTIVE',
+          message: 'Proposal already exists for this service request',
+          data: { proposalId: existing._id, currentStatus: existing.status }
+        });
+      }
+
+      let proposal;
+      if (existing) {
+        // Reciclar la propuesta previa: limpiar datos y volver a 'draft'
+        existing.status = 'draft';
+        existing.message = message || '';
+        existing.pricing = undefined;
+        existing.timing = undefined;
+        existing.terms = undefined;
+        existing.commission = undefined;
+        existing.expiryDate = undefined;
+        existing.viewedAt = undefined;
+        existing.respondedAt = undefined;
+        await existing.save();
+        proposal = existing;
+      } else {
+        proposal = await Proposal.create({
+          serviceRequest: serviceRequestId,
+          provider: req.user._id,
+          message: message || '',
+          status: 'draft'
+        });
+      }
       return res.status(201).json({ success: true, message: 'Draft created', data: { proposal } });
     } catch (error) {
       console.error('ProposalController - createDraft error:', error);
@@ -207,6 +240,10 @@ class ProposalController {
       if (!serviceRequest) {
         return res.status(404).json({ success: false, message: 'Service request not found' });
       }
+
+      // Bloqueo de auto-contrato
+      if (rejectIfSelfHire(res, req.user?._id, serviceRequest.client, 'proposal')) return;
+
       if (serviceRequest.status !== 'published') {
         return res.status(409).json({ success: false, message: 'Service request is not available for proposals', currentStatus: serviceRequest.status });
       }
@@ -354,8 +391,29 @@ class ProposalController {
       }
       if (!['sent','viewed'].includes(proposal.status)) return res.status(400).json({ success: false, message: 'Cannot reject proposal in current status' });
       proposal.status = 'rejected';
+      proposal.respondedAt = new Date();
       await proposal.save();
-      res.json({ success: true, message: 'Proposal rejected', data: { proposal } });
+
+      // Notificar al proveedor que su propuesta fue rechazada y que puede reenviar otra.
+      try {
+        emitter.emitToUser(String(proposal.provider), 'PROPOSAL_REJECTED', {
+          proposalId: String(proposal._id),
+          serviceRequestId: String(proposal.serviceRequest._id),
+          canResubmit: true
+        });
+        emitter.emitCountersUpdateToUser(proposal.provider, { reason: 'proposal_rejected' });
+      } catch { /* ignore */ }
+
+      res.json({
+        success: true,
+        message: 'Proposal rejected',
+        data: {
+          proposal,
+          // Indica al frontend que el cliente puede volver a contactar al mismo proveedor
+          // y que el proveedor puede enviar una nueva propuesta sobre la misma solicitud.
+          canResubmit: true
+        }
+      });
     } catch (error) {
       console.error('ProposalController - rejectProposal error:', error);
       res.status(500).json({ success: false, message: 'Failed to reject proposal' });
@@ -395,6 +453,9 @@ class ProposalController {
           message: 'Service request not found'
         });
       }
+
+      // Bloqueo de auto-contrato: un usuario multirol no puede enviar propuesta a su propia solicitud
+      if (rejectIfSelfHire(res, req.user?._id, serviceRequest.client, 'proposal')) return;
 
       // Verificar que la solicitud esté disponible para recibir propuestas
       if (serviceRequest.status !== 'published') {
@@ -473,16 +534,21 @@ class ProposalController {
         });
       }
 
-      // Verificar que no haya enviado ya una propuesta
+      // Verificar que no haya enviado ya una propuesta activa.
+      // Las propuestas en estado terminal (rejected/cancelled/expired) NO bloquean:
+      // se reciclarán más abajo al crear/guardar la nueva propuesta.
+      const TERMINAL_STATES_SEND = ['rejected', 'cancelled', 'expired'];
       const existingProposal = await Proposal.findOne({
         serviceRequest: serviceRequestId,
         provider: req.user._id
       });
 
-      if (existingProposal) {
+      if (existingProposal && !TERMINAL_STATES_SEND.includes(existingProposal.status)) {
         return res.status(400).json({
           success: false,
-          message: 'Proposal already sent for this service request'
+          code: 'PROPOSAL_ALREADY_ACTIVE',
+          message: 'Proposal already sent for this service request',
+          data: { proposalId: existingProposal._id, currentStatus: existingProposal.status }
         });
       }
 
@@ -517,7 +583,9 @@ class ProposalController {
         finalAmount = Number(amount);
       }
 
-      const proposal = new Proposal({
+      // Reciclar propuesta previa en estado terminal si existe (evita choque con el
+      // \u00edndice \u00fanico { serviceRequest, provider }). Si no existe, crear nueva.
+      const proposalPayload = {
         serviceRequest: serviceRequestId,
         provider: req.user._id,
         pricing: pricingData,
@@ -539,8 +607,19 @@ class ProposalController {
           amount: Math.round(finalAmount * commissionRate * 100) / 100
         },
         status: 'sent',
-        expiryDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 días
-      });
+        expiryDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 d\u00edas
+      };
+
+      let proposal;
+      if (existingProposal && TERMINAL_STATES_SEND.includes(existingProposal.status)) {
+        Object.assign(existingProposal, proposalPayload);
+        // Limpiar timestamps de la propuesta anterior para no confundir al cliente
+        existingProposal.viewedAt = undefined;
+        existingProposal.respondedAt = undefined;
+        proposal = existingProposal;
+      } else {
+        proposal = new Proposal(proposalPayload);
+      }
 
       // Generar traducciones del mensaje ANTES de guardar
       try {

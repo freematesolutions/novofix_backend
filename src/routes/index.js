@@ -12,6 +12,7 @@ import chatRoutes from './shared/chat.routes.js';
 import reviewRoutes from './shared/reviews.routes.js';
 import adminRoutes from './admin/users.routes.js';
 import cmsAdminRoutes from './admin/cms.routes.js';
+import siteSettingsAdminRoutes from './admin/siteSettings.routes.js';
 import contentRoutes from './shared/content.routes.js';
 import uploadRoutes from './shared/uploads.routes.js';
 import notificationRoutes from './shared/notifications.routes.js';
@@ -34,6 +35,7 @@ router.use('/reviews', reviewRoutes);
 // genérico para que Express resuelva primero el router más específico.
 router.use('/content', contentRoutes);
 router.use('/admin/cms', cmsAdminRoutes);
+router.use('/admin/site-settings', siteSettingsAdminRoutes);
 router.use('/admin', adminRoutes);
 router.use('/uploads', uploadRoutes);
 router.use('/notifications', notificationRoutes);

@@ -185,57 +185,55 @@ export const SEARCH_KEYWORDS = {
       'peeling paint', 'wall damage'
     ]
   },
-  'Gabinetes': {
+  'Refrigeración': {
     es: [
-      'gabinete', 'gabinetes', 'armario', 'armarios', 'closet', 'closets',
-      'alacena', 'alacenas', 'mueble cocina', 'mueble bano',
-      'puerta gabinete', 'bisagra', 'bisagras', 'tirador', 'tiradores',
-      'herraje', 'herrajes', 'cajon', 'cajones', 'repisa', 'repisas',
-      'estante', 'estantes', 'vestidor', 'organizador',
-      'laminado', 'melamina', 'madera', 'mdf', 'lacar', 'lacado',
+      'refrigeracion', 'refrigeración', 'refrigerador', 'refrigeradora', 'nevera', 'neveras',
+      'congelador', 'congeladora', 'freezer', 'frigorifico', 'frigorífico', 'heladera',
+      'cuarto frio', 'cuarto frío', 'camara frigorifica', 'cámara frigorífica', 'walk in cooler',
+      'vitrina refrigerada', 'vitrina', 'enfriador', 'enfriadora', 'chiller',
+      'compresor', 'gas refrigerante', 'recarga gas', 'fuga gas', 'evaporador', 'condensador',
+      'no enfria', 'no enfría', 'no congela', 'no hace hielo', 'hace ruido', 'gotea agua', 'pierde frio', 'pierde frío',
       // Frases contextuales
-      'instalar gabinetes', 'reparar gabinetes', 'cambiar puertas gabinete',
-      'gabinetes cocina', 'gabinetes bano', 'hacer closet', 'closet medida',
-      'renovar gabinetes', 'pintar gabinetes', 'actualizar herraje'
+      'reparar refrigerador', 'reparar nevera', 'reparar congelador',
+      'mantenimiento refrigeracion', 'instalar refrigerador', 'cambiar compresor',
+      'recarga gas refrigerante', 'refrigeracion comercial', 'refrigeracion industrial'
     ],
     en: [
-      'cabinet', 'cabinets', 'cabinetry', 'closet', 'closets', 'wardrobe',
-      'pantry', 'cupboard', 'shelving', 'storage',
-      'cabinet door', 'hinge', 'hinges', 'handle', 'handles', 'knob', 'knobs',
-      'hardware', 'drawer', 'drawers', 'shelf', 'shelves', 'organizer',
-      'laminate', 'melamine', 'wood', 'mdf', 'lacquer',
+      'refrigeration', 'refrigerator', 'fridge', 'freezer', 'icebox',
+      'walk in cooler', 'walk-in cooler', 'walk-in freezer', 'cold room', 'cold storage',
+      'display cooler', 'reach in cooler', 'reach-in cooler', 'chiller',
+      'compressor', 'refrigerant', 'gas leak', 'evaporator', 'condenser',
+      'not cooling', 'not freezing', 'no ice', 'making noise', 'leaking water', 'losing cold',
       // Contextual phrases
-      'install cabinets', 'repair cabinets', 'replace cabinet doors',
-      'kitchen cabinets', 'bathroom cabinets', 'build closet', 'custom closet',
-      'refinish cabinets', 'paint cabinets', 'update hardware'
+      'refrigerator repair', 'fridge repair', 'freezer repair',
+      'refrigeration maintenance', 'install refrigerator', 'compressor replacement',
+      'refrigerant recharge', 'commercial refrigeration', 'industrial refrigeration'
     ]
   },
-  'Mantenimiento': {
+  'Garaje': {
     es: [
-      'mantenimiento', 'mantener', 'preventivo', 'correctivo', 'servicio',
-      'revision', 'inspección', 'ajuste', 'ajustar', 'calibrar', 'calibracion',
-      'engranaje', 'lubricar', 'lubricacion', 'aceitar',
-      'general', 'periodico', 'rutina', 'programado',
-      'edificio', 'condominio', 'oficina', 'local', 'comercial',
-      'equipo', 'equipos', 'maquinaria', 'sistema', 'sistemas',
+      'garaje', 'garage', 'cochera', 'parking', 'estacionamiento',
+      'puerta', 'porton', 'portón', 'puerta de garaje', 'puerta seccional',
+      'motor', 'abrepuertas', 'control remoto', 'opener',
+      'estanteria', 'estantería', 'estantes', 'organizar', 'organizacion', 'organización',
+      'piso', 'epoxico', 'epóxico', 'epoxi', 'iluminacion', 'iluminación', 'ventilacion', 'ventilación',
+      'reparar puerta', 'instalar puerta', 'cambiar motor', 'mantener garaje',
       // Frases contextuales
-      'mantenimiento preventivo', 'mantenimiento correctivo', 'mantenimiento general',
-      'servicio mantenimiento', 'mantenimiento edificio', 'mantenimiento oficina',
-      'mantenimiento equipo', 'revision general', 'mantenimiento casa',
-      'mantenimiento periodico', 'plan mantenimiento'
+      'puerta de garaje', 'motor de garaje', 'control de garaje',
+      'organizar garaje', 'estanterias garaje', 'piso de garaje',
+      'reparacion garaje', 'instalacion garaje', 'limpieza garaje'
     ],
     en: [
-      'maintenance', 'maintain', 'upkeep', 'preventive', 'corrective', 'service',
-      'inspection', 'adjust', 'adjustment', 'calibrate', 'calibration',
-      'gear', 'lubricate', 'lubrication', 'oil',
-      'general', 'periodic', 'routine', 'scheduled',
-      'building', 'condo', 'office', 'commercial', 'property',
-      'equipment', 'machinery', 'system', 'systems',
+      'garage', 'carport', 'parking',
+      'garage door', 'sectional door', 'overhead door', 'roll-up door',
+      'opener', 'door opener', 'remote', 'motor',
+      'shelving', 'shelves', 'organization', 'organizer', 'storage',
+      'epoxy floor', 'epoxy', 'flooring', 'lighting', 'ventilation',
+      'repair door', 'install door', 'replace motor', 'garage maintenance',
       // Contextual phrases
-      'preventive maintenance', 'corrective maintenance', 'general maintenance',
-      'maintenance service', 'building maintenance', 'office maintenance',
-      'equipment maintenance', 'general inspection', 'home maintenance',
-      'periodic maintenance', 'maintenance plan'
+      'garage door repair', 'garage door installation', 'garage opener repair',
+      'garage organization', 'garage shelving', 'garage flooring',
+      'garage cleaning', 'garage makeover'
     ]
   },
   'Climatización': {
@@ -463,31 +461,6 @@ export const SEARCH_KEYWORDS = {
       'install floor', 'replace floor', 'repair floor', 'lay floor',
       'kitchen floor', 'bathroom floor', 'wood floor', 'tile floor',
       'polish floor', 'level floor', 'damaged floor', 'broken tile'
-    ]
-  },
-  'Cocina': {
-    es: [
-      'cocina', 'cocinas', 'electrodomestico', 'electrodomesticos',
-      'estufa', 'horno', 'microondas', 'refrigerador', 'nevera', 'lavavajillas',
-      'encimera', 'encimeras', 'barra', 'isla', 'granito', 'cuarzo', 'marmol',
-      'fregadero', 'grifo cocina', 'campana', 'extractor',
-      'salpicadero', 'backsplash', 'azulejo cocina',
-      'gas', 'linea gas', 'conexion gas', 'quemador', 'quemadores',
-      // Frases contextuales
-      'instalar estufa', 'reparar electrodomestico', 'cambiar encimera',
-      'remodelar cocina', 'cocina integral', 'instalar campana',
-      'problema cocina', 'fregadero cocina', 'instalar lavavajillas'
-    ],
-    en: [
-      'kitchen', 'appliance', 'appliances', 'stove', 'oven', 'microwave',
-      'refrigerator', 'fridge', 'dishwasher', 'range',
-      'countertop', 'countertops', 'counter', 'island', 'granite', 'quartz', 'marble',
-      'kitchen sink', 'kitchen faucet', 'hood', 'exhaust', 'vent',
-      'backsplash', 'kitchen tile', 'gas line', 'burner',
-      // Contextual phrases
-      'install stove', 'repair appliance', 'replace countertop',
-      'remodel kitchen', 'kitchen remodel', 'install hood',
-      'kitchen problem', 'kitchen sink', 'install dishwasher'
     ]
   },
   'Jardinería': {

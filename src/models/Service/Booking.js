@@ -204,5 +204,44 @@ bookingSchema.index({ provider: 1, status: 1 });
 bookingSchema.index({ 'schedule.scheduledDate': 1 });
 bookingSchema.index({ status: 1, 'schedule.scheduledDate': 1 });
 
+/**
+ * Middleware: cuando un booking pasa a estado 'completed' (o se crea
+ * directamente con ese estado, como ocurre en el flujo de aceptación
+ * de propuesta), incrementamos el contador real de contrataciones
+ * del proveedor (providerProfile.stats.completedJobs).
+ *
+ * Esto es la fuente única de verdad para el badge "contrataciones"
+ * en las tarjetas de proveedor del frontend. Antes este campo nunca
+ * se actualizaba y los badges siempre mostraban 0.
+ */
+bookingSchema.pre('save', function trackCompletionTransition(next) {
+  // Marcar si esta operación debe disparar el incremento en post-save
+  if (this.isNew) {
+    this.__incrementCompletedJobs = this.status === 'completed';
+  } else if (this.isModified('status') && this.status === 'completed') {
+    this.__incrementCompletedJobs = true;
+  } else {
+    this.__incrementCompletedJobs = false;
+  }
+  next();
+});
+
+bookingSchema.post('save', async function syncProviderCompletedJobs(doc, next) {
+  try {
+    if (doc.__incrementCompletedJobs && doc.provider) {
+      const Provider = mongoose.model('Provider');
+      await Provider.updateOne(
+        { _id: doc.provider },
+        { $inc: { 'providerProfile.stats.completedJobs': 1 } }
+      );
+    }
+  } catch (err) {
+    // No bloqueamos el flujo principal por un error de stats
+    console.warn('[Booking.post(save)] Failed to increment provider completedJobs:', err?.message);
+  } finally {
+    if (typeof next === 'function') next();
+  }
+});
+
 const Booking = mongoose.model('Booking', bookingSchema);
 export default Booking;

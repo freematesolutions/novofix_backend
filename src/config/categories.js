@@ -6,14 +6,13 @@ export const SERVICE_CATEGORIES = [
   'Plomería',
   'Electricidad',
   'Climatización',
+  'Refrigeración',
   'Cerrajería',
-  'Mantenimiento',
+  'Garaje',
   'Control de Plagas',
   'Limpieza',
   'Pintura',
-  'Gabinetes',
   'Pisos',
-  'Cocina',
   'Remodelación',
   'Jardinería',
   'Piscinas',
@@ -35,8 +34,15 @@ export const CATEGORY_MIGRATION_MAP = {
   'HVAC': 'Climatización',
   'Cerrajeria': 'Cerrajería',
   'Control de plagas': 'Control de Plagas',
-  'Carpintería': 'Gabinetes',
-  'Piscina': 'Piscinas'
+  // 2026-06 — 'Carpintería' y 'Gabinetes' se retiran del catálogo. Se remapean a 'Remodelación'.
+  'Carpintería': 'Remodelación',
+  'Gabinetes': 'Remodelación',
+  // 2026-06 — 'Cocina' también se retira; remap a 'Remodelación' por afinidad funcional.
+  'Cocina': 'Remodelación',
+  'Piscina': 'Piscinas',
+  // 2026-06 — Rebranding: la categoría 'Mantenimiento' pasó a llamarse 'Garaje'.
+  // Mantener el mapeo para que documentos antiguos en MongoDB se normalicen automáticamente.
+  'Mantenimiento': 'Garaje'
 };
 
 /**
@@ -55,14 +61,13 @@ function getCategoryDescription(category) {
     'Plomería': 'Cero fugas, cero estrés',
     'Electricidad': 'Energía segura',
     'Climatización': 'Tu clima perfecto',
+    'Refrigeración': 'Frío confiable, sin pausas',
     'Cerrajería': 'Acceso y seguridad',
-    'Mantenimiento': 'Siempre impecable',
+    'Garaje': 'Tu garaje, listo y ordenado',
     'Control de Plagas': '100% protegido',
     'Limpieza': 'Brillo total',
     'Pintura': 'Acabados de lujo',
-    'Gabinetes': 'Diseños a medida',
     'Pisos': 'Pisadas con elegancia',
-    'Cocina': 'Equipamiento y confort',
     'Remodelación': 'Estrena tu casa',
     'Jardinería': 'Jardines de revista',
     'Piscinas': 'Oasis cristalino',

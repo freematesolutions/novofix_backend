@@ -376,12 +376,12 @@ describe('Reset content from defaults', () => {
 // Service Categories overrides
 // ════════════════════════════════════════════════════════════════════
 describe('Service Category overrides', () => {
-  it('list devuelve las 22 categorías canónicas', async () => {
+  it('list devuelve las 21 categorías canónicas', async () => {
     const res = await request(app)
       .get('/api/admin/cms/service-categories')
       .set('Authorization', `Bearer ${adminToken}`);
     expect(res.status).toBe(200);
-    expect(res.body.data.items.length).toBe(22);
+    expect(res.body.data.items.length).toBe(21);
     // todas inician sin override
     expect(res.body.data.items.every((it) => it.hasOverride === false)).toBe(true);
   });

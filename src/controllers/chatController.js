@@ -10,6 +10,7 @@ import Provider from '../models/User/Provider.js';
 import { getIO } from '../config/socket.js';
 import emitter from '../websocket/services/emitterService.js';
 import notificationService from '../services/external/notificationService.js';
+import { rejectIfSelfHire, isSameUser } from '../utils/selfHireGuard.js';
 
 class ChatController {
   /**
@@ -29,6 +30,16 @@ class ChatController {
         });
       }
 
+      // Bloqueo de auto-contrato: la propuesta no puede pertenecer al mismo usuario
+      // que también es el cliente de la solicitud (no debería existir, pero por defensa).
+      if (isSameUser(proposal.provider, proposal.serviceRequest?.client)) {
+        return res.status(400).json({
+          success: false,
+          code: 'SELF_HIRE_NOT_ALLOWED',
+          message: 'A proposal cannot be exchanged between the same user.'
+        });
+      }
+
       // Verificar que el usuario sea participante (cliente o proveedor)
       const isClient = proposal.serviceRequest.client.toString() === req.user._id.toString();
       const isProvider = proposal.provider.toString() === req.user._id.toString();
@@ -43,8 +54,8 @@ class ChatController {
       // Buscar chat existente para esta propuesta
       let chat = await Chat.findOne({
         proposal: proposalId
-      }).populate('participants.client', 'profile providerProfile')
-        .populate('participants.provider', 'profile providerProfile')
+      }).populate('participants.client', 'profile providerProfile email')
+        .populate('participants.provider', 'profile providerProfile email')
         .populate('lastMessage');
 
       if (!chat) {
@@ -89,8 +100,8 @@ class ChatController {
 
         // Re-populate después de guardar
         chat = await Chat.findById(chat._id)
-          .populate('participants.client', 'profile providerProfile')
-          .populate('participants.provider', 'profile providerProfile')
+          .populate('participants.client', 'profile providerProfile email')
+          .populate('participants.provider', 'profile providerProfile email')
           .populate('lastMessage');
       }
 
@@ -147,14 +158,17 @@ class ChatController {
         });
       }
 
+      // Bloqueo de auto-contrato: el proveedor no puede pedir info sobre su propia solicitud
+      if (rejectIfSelfHire(res, req.user?._id, serviceRequest.client, 'inquiry')) return;
+
       // Buscar chat existente para esta solicitud y proveedor
       let chat = await Chat.findOne({
         'participants.client': serviceRequest.client,
         'participants.provider': req.user._id,
         serviceRequest: requestId,
         chatType: 'info_request'
-      }).populate('participants.client', 'profile providerProfile')
-        .populate('participants.provider', 'profile providerProfile')
+      }).populate('participants.client', 'profile providerProfile email')
+        .populate('participants.provider', 'profile providerProfile email')
         .populate('lastMessage');
 
       if (!chat) {
@@ -236,8 +250,8 @@ class ChatController {
 
       // Re-populate
       chat = await Chat.findById(chat._id)
-        .populate('participants.client', 'profile providerProfile')
-        .populate('participants.provider', 'profile providerProfile')
+        .populate('participants.client', 'profile providerProfile email')
+        .populate('participants.provider', 'profile providerProfile email')
         .populate('lastMessage');
 
       res.json({
@@ -273,7 +287,7 @@ class ChatController {
       }
 
       // Verificar que el proveedor exista
-      const provider = await Provider.findById(providerId).select('profile providerProfile');
+      const provider = await Provider.findById(providerId).select('profile providerProfile email');
       if (!provider) {
         return res.status(404).json({
           success: false,
@@ -294,8 +308,8 @@ class ChatController {
         'participants.client': clientId,
         'participants.provider': providerId,
         chatType: 'inquiry'
-      }).populate('participants.client', 'profile providerProfile')
-        .populate('participants.provider', 'profile providerProfile')
+      }).populate('participants.client', 'profile providerProfile email')
+        .populate('participants.provider', 'profile providerProfile email')
         .populate('lastMessage');
 
       if (!chat) {
@@ -333,8 +347,8 @@ class ChatController {
 
         // Re-populate después de guardar
         chat = await Chat.findById(chat._id)
-          .populate('participants.client', 'profile providerProfile')
-          .populate('participants.provider', 'profile providerProfile')
+          .populate('participants.client', 'profile providerProfile email')
+          .populate('participants.provider', 'profile providerProfile email')
           .populate('lastMessage');
       }
 
@@ -629,7 +643,7 @@ class ChatController {
           if (msg.sender && msg.senderModel && msg.senderModel !== 'System') {
             try {
               const senderData = await User.findById(msg.sender)
-                .select('profile providerProfile')
+                .select('profile providerProfile email')
                 .lean();
               if (senderData) {
                 // Ensure both _id and id are present as strings for consistent client-side comparison
@@ -720,8 +734,8 @@ class ChatController {
       }
 
       const chats = await Chat.find(query)
-        .populate('participants.client', 'profile providerProfile')
-        .populate('participants.provider', 'profile providerProfile')
+        .populate('participants.client', 'profile providerProfile email')
+        .populate('participants.provider', 'profile providerProfile email')
         .populate('booking', 'basicInfo status')
         .populate('proposal', 'pricing message status')
         .populate('serviceRequest', 'basicInfo status')
@@ -735,7 +749,7 @@ class ChatController {
         if (chatObj.participants?.client && !chatObj.participants.client.profile) {
           try {
             const clientData = await User.findById(chatObj.participants.client._id || chatObj.participants.client)
-              .select('profile providerProfile')
+              .select('profile providerProfile email')
               .lean();
             if (clientData) chatObj.participants.client = clientData;
           } catch { /* ignore */ }
@@ -743,7 +757,7 @@ class ChatController {
         if (chatObj.participants?.provider && !chatObj.participants.provider.providerProfile) {
           try {
             const providerData = await User.findById(chatObj.participants.provider._id || chatObj.participants.provider)
-              .select('profile providerProfile')
+              .select('profile providerProfile email')
               .lean();
             if (providerData) chatObj.participants.provider = providerData;
           } catch { /* ignore */ }
@@ -903,7 +917,7 @@ class ChatController {
           if (msg.sender && msg.senderModel && msg.senderModel !== 'System') {
             try {
               const senderData = await User.findById(msg.sender)
-                .select('profile providerProfile')
+                .select('profile providerProfile email')
                 .lean();
               if (senderData) {
                 // Ensure both _id and id are present as strings for consistent client-side comparison

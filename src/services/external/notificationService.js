@@ -872,18 +872,18 @@ class NotificationService {
           ...base,
           subject: 'Pago pendiente 💳',
           message: extra?.message || 'Se requiere pago para tu reserva.',
-          actionUrl: '/pagos',
+          actionUrl: extra?.bookingId ? `/reservas?openInvoice=${extra.bookingId}` : '/reservas',
           priority: 'high',
-          extraData: { amount: extra?.amount || '' }
+          extraData: { amount: extra?.amount || '', bookingId: extra?.bookingId || '' }
         };
       case 'PAYMENT_RECEIVED':
         return {
           ...base,
           subject: 'Pago recibido ✅',
           message: extra?.amount ? `Has recibido un pago de $${extra.amount}.` : 'Has recibido un pago.',
-          actionUrl: '/pagos',
+          actionUrl: extra?.bookingId ? `/reservas?openInvoice=${extra.bookingId}` : '/reservas',
           priority: 'medium',
-          extraData: { amount: extra?.amount || '' }
+          extraData: { amount: extra?.amount || '', bookingId: extra?.bookingId || '' }
         };
       case 'REVIEW_REQUEST':
         return {
@@ -901,7 +901,8 @@ class NotificationService {
           message: extra?.senderName 
             ? `${extra.senderName} te ha enviado un mensaje.`
             : 'Tienes un nuevo mensaje.',
-          actionUrl: extra?.chatId ? `/mensajes?chat=${extra.chatId}` : '/mensajes',
+          // Cliente usa /mis-mensajes (provider usa /mensajes). El deep-link incluye el chatId para abrir directamente la conversación.
+          actionUrl: extra?.chatId ? `/mis-mensajes?chat=${extra.chatId}` : '/mis-mensajes',
           priority: 'medium',
           extraData: { senderName: extra?.senderName || '', chatId: extra?.chatId || '' }
         };

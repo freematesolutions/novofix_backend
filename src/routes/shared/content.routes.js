@@ -6,10 +6,14 @@
 
 import express from 'express';
 import cmsController from '../../controllers/cmsController.js';
+import siteSettingsController from '../../controllers/siteSettingsController.js';
 import { validateParams, validateQuery } from '../../middlewares/utils/validate.js';
 import { contentKeyParamSchema, publicLocaleQuerySchema, faqQuerySchema } from '../../schemas/cms.schemas.js';
 
 const router = express.Router();
+
+// Site settings públicos (deben ir ANTES de '/:key' para no caer en el matcher genérico).
+router.get('/home-video', siteSettingsController.getPublicHomeHeroVideo);
 
 // FAQ debe ir ANTES de '/:key' para que no caiga en el matcher genérico.
 router.get('/faq', validateQuery(faqQuerySchema), cmsController.getPublicFaq);

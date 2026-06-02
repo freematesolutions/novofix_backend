@@ -5,6 +5,7 @@ import notificationService from '../services/external/notificationService.js';
 import translationService from '../services/external/translationService.js';
 import * as agendaService from '../services/internal/agendaService.js';
 import emitter from '../websocket/services/emitterService.js';
+import { filterOutSelf } from '../utils/selfHireGuard.js';
 
 class RequestController {
   /**
@@ -45,8 +46,27 @@ class RequestController {
         });
       }
 
+      // Bloqueo de auto-contrato (usuarios multirol): nunca incluir al propio usuario
+      // como proveedor objetivo de su propia solicitud.
+      let sanitizedTargetProviders = targetProviders;
+      if (clientId && Array.isArray(targetProviders) && targetProviders.length > 0) {
+        sanitizedTargetProviders = filterOutSelf(targetProviders, clientId);
+        // Si tras filtrar quedan 0 proveedores y la lista original sólo contenía al propio usuario,
+        // rechazar la solicitud para evitar confusión silenciosa.
+        if (sanitizedTargetProviders.length === 0) {
+          return res.status(400).json({
+            success: false,
+            code: 'SELF_HIRE_NOT_ALLOWED',
+            message: 'You cannot target yourself as a provider for your own request.'
+          });
+        }
+      }
+
       // Prevenir solicitudes duplicadas: verificar si ya existe una solicitud activa
-      // del mismo cliente para la misma categoría
+      // del mismo cliente para la misma categoría.
+      // Excepción: si la solicitud previa sólo tiene propuestas en estado terminal
+      // (rejected/cancelled/expired) y no recibió ninguna activa, se considera "liberada"
+      // y se cancela automáticamente para permitir crear la nueva.
       if (clientId && !saveAsDraft) {
         const existingRequest = await ServiceRequest.findOne({
           client: clientId,
@@ -54,12 +74,26 @@ class RequestController {
           status: { $in: ['published', 'draft'] }
         });
         if (existingRequest) {
-          return res.status(409).json({
-            success: false,
-            code: 'DUPLICATE_REQUEST',
-            message: 'You already have an active request for this category',
-            data: { existingRequestId: existingRequest._id }
+          const Proposal = (await import('../models/Service/Proposal.js')).default;
+          const activeProposalCount = await Proposal.countDocuments({
+            serviceRequest: existingRequest._id,
+            status: { $in: ['draft', 'sent', 'viewed', 'accepted'] }
           });
+          if (activeProposalCount > 0) {
+            return res.status(409).json({
+              success: false,
+              code: 'DUPLICATE_REQUEST',
+              message: 'You already have an active request for this category',
+              data: { existingRequestId: existingRequest._id }
+            });
+          }
+          // Solicitud previa sin propuestas activas: liberar (cancelar) para permitir la nueva.
+          existingRequest.status = 'cancelled';
+          if (!existingRequest.metadata) existingRequest.metadata = {};
+          existingRequest.metadata.cancelledReason = 'superseded_by_new_request';
+          existingRequest.metadata.cancelledAt = new Date();
+          await existingRequest.save();
+          try { emitter.emitCountersUpdateToUser(clientId, { reason: 'request_superseded' }); } catch { /* ignore */ }
         }
       }
 
@@ -115,8 +149,8 @@ class RequestController {
           photos: photos || [],
           videos: videos || []
         },
-        visibility: (targetProviders && Array.isArray(targetProviders) && targetProviders.length > 0) ? 'directed' : (visibility || 'auto'),
-        selectedProviders: (targetProviders && Array.isArray(targetProviders) && targetProviders.length > 0) ? targetProviders : [],
+        visibility: (sanitizedTargetProviders && Array.isArray(sanitizedTargetProviders) && sanitizedTargetProviders.length > 0) ? 'directed' : (visibility || 'auto'),
+        selectedProviders: (sanitizedTargetProviders && Array.isArray(sanitizedTargetProviders) && sanitizedTargetProviders.length > 0) ? sanitizedTargetProviders : [],
         status: initialStatus,
         expiryDate
       });

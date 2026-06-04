@@ -13,8 +13,19 @@ import subscriptionService from '../services/internal/subscriptionService.js';
 import crypto from 'crypto';
 import { SERVICE_CATEGORIES } from '../config/categories.js';
 
-const normalizeProviderServices = (services = [], additionalServices = []) => {
-  const safeServices = Array.isArray(services) ? services : [];
+/**
+ * Origen público del frontend (SPA), sin barra final.
+ * Centraliza el fallback y evita URLs con doble slash (//verificar-email)
+ * que romperían el routing del SPA en Vercel.
+ */
+const getFrontendBaseUrl = () =>
+  (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/+$/, '');
+
+/** Construye la URL absoluta de verificación de email. */
+const buildVerifyUrl = (token) =>
+  `${getFrontendBaseUrl()}/verificar-email?token=${token}`;
+
+const normalizeProviderServices = (services = [], additionalServices = []) => {  const safeServices = Array.isArray(services) ? services : [];
   const mainService = safeServices[0] || null;
   const extraCategories = safeServices.slice(1).map(s => s?.category).filter(Boolean);
   const safeAdditional = Array.isArray(additionalServices) ? additionalServices : [];
@@ -78,7 +89,7 @@ class AuthController {
       await client.save();
 
       // URL de verificación
-      const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verificar-email?token=${emailVerificationToken}`;
+      const verifyUrl = buildVerifyUrl(emailVerificationToken);
 
       // Enviar email real de verificación (siempre, salvo modo demo legacy)
       if (!demoMode) {
@@ -347,7 +358,7 @@ class AuthController {
       await provider.save();
 
       // URL de verificación
-      const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verificar-email?token=${emailVerificationToken}`;
+      const verifyUrl = buildVerifyUrl(emailVerificationToken);
 
       // Enviar email real de verificación (siempre, salvo modo demo legacy)
       if (!demoMode) {
@@ -496,7 +507,7 @@ class AuthController {
       await user.save();
 
       // Generar URL de verificación
-      const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verificar-email?token=${user.emailVerificationToken}`;
+      const verifyUrl = buildVerifyUrl(user.emailVerificationToken);
       const locale = user.preferences?.language || 'es';
 
       // Enviar email usando notificationService

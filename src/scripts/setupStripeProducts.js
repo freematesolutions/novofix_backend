@@ -11,9 +11,21 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: path.resolve(__dirname, '../../.env.development') });
+
+// Load env file based on NODE_ENV: production uses .env.production, else .env.development
+// When run with STRIPE_SECRET_KEY already set in the environment, dotenv will NOT overwrite it.
+const envFile = process.env.NODE_ENV === 'production' ? '.env.production' : '.env.development';
+dotenv.config({ path: path.resolve(__dirname, `../../${envFile}`) });
 
 import Stripe from 'stripe';
+
+if (!process.env.STRIPE_SECRET_KEY) {
+  console.error('❌ STRIPE_SECRET_KEY is not set. Run with: $env:STRIPE_SECRET_KEY="sk_live_..." before this script.');
+  process.exit(1);
+}
+
+const isLive = process.env.STRIPE_SECRET_KEY.startsWith('sk_live_');
+console.log(`🔑 Using ${isLive ? '✅ LIVE' : '⚠️  TEST'} key: ${process.env.STRIPE_SECRET_KEY.slice(0, 14)}...`);
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 

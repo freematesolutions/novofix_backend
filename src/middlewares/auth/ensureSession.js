@@ -10,6 +10,46 @@ const ensureSession = async (req, res, next) => {
   try {
     let sessionId = req.cookies?.sessionId || req.headers['x-session-id'];
     const clientId = req.headers['x-client-id'];
+
+    const buildGuestSessionPayload = ({ sessionId: nextSessionId, expiresAt }) => ({
+      sessionId: nextSessionId,
+      clientId: clientId || undefined,
+      userType: 'guest',
+      guestData: {},
+      deviceInfo: {
+        userAgent: req.headers['user-agent'],
+        ipAddress: req.ip || req.connection?.remoteAddress,
+        deviceType: getDeviceType(req.headers['user-agent'])
+      },
+      expiresAt,
+      lastActivity: new Date(),
+      metadata: { createdAt: new Date() }
+    });
+
+    const createOrRecycleGuestSession = async () => {
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 30); // 30 dias de expiracion
+      const nextSessionId = uuidv4();
+      const payload = buildGuestSessionPayload({ sessionId: nextSessionId, expiresAt });
+
+      if (clientId) {
+        // Reusar/renovar por clientId evita colisiones cuando hay docs expirados
+        // aun presentes (TTL no es instantaneo) y tambien evita carreras.
+        const recycled = await Session.findOneAndUpdate(
+          { clientId },
+          { $set: payload },
+          {
+            new: true,
+            upsert: true,
+            setDefaultsOnInsert: true
+          }
+        );
+        return { session: recycled, sessionId: nextSessionId };
+      }
+
+      const created = await Session.create(payload);
+      return { session: created, sessionId: nextSessionId };
+    };
     
     // Verificar si ya hay una sesión activa en la request
     if (req.session) {
@@ -35,40 +75,10 @@ const ensureSession = async (req, res, next) => {
     }
 
     if (!session) {
-      // Crear nueva sesión guest
-      sessionId = uuidv4();
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + 30); // 30 días de expiración
-
-      try {
-        session = await Session.create({
-          sessionId,
-          clientId: clientId || undefined,
-          userType: 'guest',
-          guestData: {},
-          deviceInfo: {
-            userAgent: req.headers['user-agent'],
-            ipAddress: req.ip || req.connection?.remoteAddress,
-            deviceType: getDeviceType(req.headers['user-agent'])
-          },
-          expiresAt,
-          lastActivity: new Date(),
-          metadata: { createdAt: new Date() }
-        });
-      } catch (e) {
-        // Si otro request concurrente creó la sesión con el mismo clientId, recuperar esa
-        const isDupClient = clientId && String(e?.code) === '11000' && e?.keyPattern?.clientId;
-        if (isDupClient) {
-          session = await Session.findOne({ clientId, expiresAt: { $gt: new Date() } });
-          if (session) {
-            sessionId = session.sessionId;
-          } else {
-            throw e;
-          }
-        } else {
-          throw e;
-        }
-      }
+      // Crear o reciclar sesion guest de manera tolerante a carreras y TTL lag.
+      const created = await createOrRecycleGuestSession();
+      session = created.session;
+      sessionId = created.sessionId;
 
       // Setear cookie de sesión
       // En producción: SameSite=None + Secure (cross-site frontend Vercel ↔ backend Render).
@@ -87,24 +97,10 @@ const ensureSession = async (req, res, next) => {
         { new: true }
       );
       if (!updated) {
-        // La sesión pudo ser eliminada (p.ej., tras merge). Crear una nueva.
-        const expiresAt = new Date();
-        expiresAt.setDate(expiresAt.getDate() + 30);
-        sessionId = uuidv4();
-        session = await Session.create({
-          sessionId,
-          clientId: clientId || undefined,
-          userType: 'guest',
-          guestData: {},
-          deviceInfo: {
-            userAgent: req.headers['user-agent'],
-            ipAddress: req.ip || req.connection?.remoteAddress,
-            deviceType: getDeviceType(req.headers['user-agent'])
-          },
-          expiresAt,
-          lastActivity: new Date(),
-          metadata: { createdAt: new Date() }
-        });
+        // La sesion pudo eliminarse o expirar entre lecturas. Reciclarla/crearla.
+        const created = await createOrRecycleGuestSession();
+        sessionId = created.sessionId;
+        session = created.session;
         res.cookie('sessionId', sessionId, {
           httpOnly: true,
           secure: process.env.NODE_ENV === 'production',

@@ -1281,17 +1281,24 @@ class GuestController {
   /**
    * Obtener pares Antes/Después de bookings completados — endpoint público
    * Devuelve pares agrupados por booking con info del proveedor
+   * Soporta filtrar por un proveedor específico via ?providerId=
    */
   async getBeforeAfterPairs(req, res) {
     try {
       const Booking = (await import('../models/Service/Booking.js')).default;
       const limit = Math.min(parseInt(req.query.limit) || 20, 50);
+      const { providerId } = req.query;
 
-      const bookings = await Booking.find({
+      const query = {
         status: 'completed',
         'serviceEvidence.before.0': { $exists: true },
         'serviceEvidence.after.0': { $exists: true }
-      })
+      };
+      if (providerId && mongoose.Types.ObjectId.isValid(providerId)) {
+        query.provider = providerId;
+      }
+
+      const bookings = await Booking.find(query)
       .sort({ completedAt: -1, createdAt: -1 })
       .limit(limit)
       .select({

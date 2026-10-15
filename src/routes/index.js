@@ -6,6 +6,8 @@ import clientRequestRoutes from './client/requests.routes.js';
 import providerProposalRoutes from './provider/proposals.routes.js';
 import providerServiceRoutes from './provider/services.routes.js';
 import providerSubscriptionRoutes from './provider/subscription.routes.js';
+import providerQuickDocRoutes from './provider/quickDocs.routes.js';
+import publicQuickDocRoutes from './public/quickDocs.routes.js';
 import bookingRoutes from './shared/bookings.routes.js';
 import paymentsRoutes from './shared/payments.routes.js';
 import chatRoutes from './shared/chat.routes.js';
@@ -27,6 +29,9 @@ router.use('/client', clientRequestRoutes);
 router.use('/provider/proposals', providerProposalRoutes);
 router.use('/provider/services', providerServiceRoutes);
 router.use('/provider/subscription', providerSubscriptionRoutes);
+router.use('/provider/quick-docs', providerQuickDocRoutes);
+// Flujo 2 — documentos rápidos públicos (acceso por token, sin auth)
+router.use('/public/quick-docs', publicQuickDocRoutes);
 router.use('/bookings', bookingRoutes);
 router.use('/payments', paymentsRoutes);
 router.use('/chats', chatRoutes);

@@ -25,6 +25,8 @@ const EMAIL_NOTIFICATION_TYPES = new Set([
   'REVIEW_REQUEST',
   'REVIEW_NUDGE',
   'INVOICE_RECEIVED',
+  // Flujo 2 — Vía Rápida en Vivo (QuickDoc)
+  'QUICKDOC_ACCEPTED',
 ]);
 
 /**
@@ -116,6 +118,8 @@ function emailActionLabel(type, locale = 'es') {
     REVIEW_REQUEST:        isEs ? 'Dejar reseña'       : 'Leave review',
     REVIEW_NUDGE:          isEs ? 'Dejar reseña'       : 'Leave review',
     INVOICE_RECEIVED:      isEs ? 'Ver factura'        : 'View invoice',
+    QUICKDOC_VIEWED:       isEs ? 'Ver documento'      : 'View document',
+    QUICKDOC_ACCEPTED:     isEs ? 'Ver documento'      : 'View document',
   };
   return map[type] || (isEs ? 'Ver detalles' : 'View details');
 }
@@ -299,6 +303,43 @@ class NotificationService {
             amount: extra?.amount || '',
             currency: extra?.currency || 'USD',
             bookingId: extra?.bookingId || ''
+          }
+        };
+
+      case 'QUICKDOC_VIEWED': {
+        const isInvoiceDoc = extra?.docType === 'invoice';
+        const docLabel = isInvoiceDoc ? 'factura' : 'estimado';
+        return {
+          ...baseData,
+          subject: `El cliente abrió tu ${docLabel} 👁️`,
+          message: `El cliente abrió el ${docLabel}${extra?.documentNumber ? ` #${extra.documentNumber}` : ''} que compartiste.`,
+          actionUrl: extra?.quickDocId ? `/documentos-rapidos/${extra.quickDocId}` : '/documentos-rapidos',
+          priority: 'medium',
+          extraData: {
+            quickDocId: extra?.quickDocId || '',
+            docType: extra?.docType || '',
+            documentNumber: extra?.documentNumber || '',
+            amount: extra?.amount || '',
+            currency: extra?.currency || 'USD'
+          }
+        };
+      }
+
+      case 'QUICKDOC_ACCEPTED':
+        return {
+          ...baseData,
+          subject: '¡Tu estimado fue aceptado! ✅',
+          message: extra?.clientName
+            ? `${extra.clientName} aceptó tu estimado${extra.documentNumber ? ` #${extra.documentNumber}` : ''}. Ya puedes convertirlo en factura.`
+            : 'El cliente aceptó tu estimado. Ya puedes convertirlo en factura.',
+          actionUrl: extra?.quickDocId ? `/documentos-rapidos/${extra.quickDocId}` : '/documentos-rapidos',
+          priority: 'high',
+          extraData: {
+            quickDocId: extra?.quickDocId || '',
+            documentNumber: extra?.documentNumber || '',
+            amount: extra?.amount || '',
+            currency: extra?.currency || 'USD',
+            clientName: extra?.clientName || ''
           }
         };
 

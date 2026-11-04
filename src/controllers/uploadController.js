@@ -66,20 +66,18 @@ async function uploadToCloudinary(file, retries = 3) {
       // Para videos, agregar optimizaciones adicionales
       if (isVideo) {
         uploadOptions.resource_type = 'video';
-        
-        // Nota: `eager_async` requiere transformaciones `eager` definidas para ser válido.
-        // Lo omitimos para evitar errores 400 de Cloudinary en uploads sin transformaciones eager.
+
+        // Cloudinary rechaza transformaciones SÍNCRONAS en videos grandes
+        // ("Video is too large to process synchronously..."). Por eso la
+        // optimización de calidad se declara como transformación `eager`
+        // y se procesa en segundo plano con `eager_async: true`. El video
+        // original queda disponible de inmediato en `secure_url`.
+        const videoQuality = fileSizeMB > 50 ? 'auto:eco' : 'auto:good';
+        uploadOptions.eager = [{ quality: videoQuality }];
+        uploadOptions.eager_async = true;
+
         if (isLargeFile) {
-          console.log(`📦 Large video detected (${fileSizeMB.toFixed(2)}MB) — using standard async upload`);
-        }
-        
-        // Optimizaciones de formato para videos
-        // Reducir calidad ligeramente para archivos muy grandes (> 50MB)
-        if (fileSizeMB > 50) {
-          uploadOptions.quality = 'auto:eco'; // Calidad económica para videos grandes
-          console.log(`🎬 Applying quality optimization for large video (${fileSizeMB.toFixed(2)}MB)`);
-        } else {
-          uploadOptions.quality = 'auto:good';
+          console.log(`📦 Large video detected (${fileSizeMB.toFixed(2)}MB) — using eager_async transformation`);
         }
       }
 
@@ -549,18 +547,17 @@ class UploadController {
           uploadOptions.resource_type = 'video';
           uploadOptions.timeout = 600000; // 10 minutos para videos
           uploadOptions.chunk_size = 20000000; // 20MB chunks
-          
-          // Nota: `eager_async` requiere transformaciones `eager` para ser válido.
-          // Lo omitimos para evitar errores 400 de Cloudinary en uploads sin transformaciones eager.
+
+          // Cloudinary rechaza transformaciones SÍNCRONAS en videos grandes.
+          // Declaramos la optimización de calidad como `eager` y la procesamos
+          // en segundo plano con `eager_async: true`. El original queda disponible
+          // de inmediato en `secure_url`.
+          const videoQuality = file.size > 50 * 1024 * 1024 ? 'auto:eco' : 'auto:good';
+          uploadOptions.eager = [{ quality: videoQuality }];
+          uploadOptions.eager_async = true;
+
           if (isLargeFile) {
-            console.log(`📦 Large chat video detected (${fileSizeMB}MB) — using standard upload`);
-          }
-          
-          // Calidad adaptativa según tamaño
-          if (file.size > 50 * 1024 * 1024) {
-            uploadOptions.quality = 'auto:eco'; // Compresión económica para videos muy grandes
-          } else {
-            uploadOptions.quality = 'auto:good';
+            console.log(`📦 Large chat video detected (${fileSizeMB}MB) — using eager_async transformation`);
           }
         } else {
           uploadOptions.resource_type = 'raw';

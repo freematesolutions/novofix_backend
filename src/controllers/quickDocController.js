@@ -55,6 +55,7 @@ function buildBusinessSnapshot(provider, override = {}) {
 function toPublicView(doc) {
   return {
     id: doc._id,
+    providerId: doc.provider,
     type: doc.type,
     status: doc.status,
     documentNumber: doc.documentNumber,

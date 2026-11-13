@@ -56,6 +56,13 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
+  // Auditoría de acciones administrativas sobre la cuenta
+  adminNotes: [{
+    action: String,
+    reason: String,
+    admin: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    timestamp: { type: Date, default: Date.now }
+  }],
   lastLogin: Date,
   preferences: {
     notifications: {

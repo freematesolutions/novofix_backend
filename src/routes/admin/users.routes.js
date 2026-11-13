@@ -1,5 +1,6 @@
 // routes/admin/users.routes.js
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import adminController from '../../controllers/adminController.js';
 import { authenticateJWT, requireAuth } from '../../middlewares/auth/jwtAuth.js';
 import { adminOnly } from '../../middlewares/auth/rbacMiddleware.js';
@@ -7,6 +8,15 @@ import ServiceRequest from '../../models/Service/ServiceRequest.js';
 import Booking from '../../models/Service/Booking.js';
 
 const router = express.Router();
+
+// Rate-limit para cambio de contraseñas iniciado por admin: 20/hora por IP.
+const passwordResetLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many password change requests from this IP. Try again later.' }
+});
 
 // Todas las rutas requieren permisos de administrador
 router.use(authenticateJWT);
@@ -20,6 +30,7 @@ router.get('/dashboard', adminController.getDashboard);
 router.get('/users', adminController.manageUsers);
 router.put('/users/:userId/status', adminController.updateUserStatus);
 router.put('/users/:userId/role', adminController.updateUserRole);
+router.post('/users/:userId/password', passwordResetLimiter, adminController.setUserPassword);
 
 // Moderación de contenido
 router.get('/reviews/moderation', adminController.moderateReviews);
